@@ -32,8 +32,23 @@ Ids: a work is `<kind>/<slug>` (`pages/berserk`, `video/dark`); a unit is a key 
 | `GET /api/v1/units/:kind/:slug/:unit/frame?t=SECONDS` | One frame as JPEG. |
 | `GET /api/v1/units/:kind/:slug/:unit/subtitles/:i` | A subtitle file as WebVTT. |
 
+| `GET /api/v1/units/:kind/:slug/:unit/file` | The volume's own file (CBZ, ZIP, PDF), for download. |
+
 Tools get pages and single frames. There is no endpoint that cuts a clip, on purpose
 ([SOUL.md](../SOUL.md)).
+
+## OPDS (readers on the phone)
+
+`/opds` is an OPDS 1.2 catalog of the manga and comics, for apps like Panels, Chunky, KOReader
+or Mihon. Readers log in with HTTP Basic: any user name, the token as the password (or nothing,
+from a trusted network).
+
+| | |
+|---|---|
+| `GET /opds` | Root: "Seguir leyendo", one section per type, everything. |
+| `GET /opds/continue`, `/opds/all`, `/opds/type/:type` | Works, with covers. |
+| `GET /opds/w/:kind/:slug` | Its volumes: the file to download, and a Page Streaming Extension (PSE) link with the page count and the page you're on. |
+| `GET /opds/pse/:kind/:slug/:unit/:n` | Page `n`, counted from 0 as PSE does. Fetching it saves your position, so the phone and the browser share one "continue".|
 
 ## Progress
 

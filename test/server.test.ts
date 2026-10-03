@@ -114,6 +114,31 @@ describe("server", () => {
     expect(() => trustedNetworks("nope")).toThrow(/not a network/);
   });
 
+  it("serves OPDS catalogs to readers, with Basic auth and PSE that saves the page", async () => {
+    const { base } = await start(LIB);
+    const basic = { authorization: `Basic ${Buffer.from(`any:${TOKEN}`).toString("base64")}` };
+    const anon = await fetch(`${base}/opds`);
+    expect(anon.status).toBe(401);
+    expect(anon.headers.get("www-authenticate")).toContain("Basic");
+    const root = await fetch(`${base}/opds`, { headers: basic });
+    expect(root.headers.get("content-type")).toContain("application/atom+xml");
+    const rootXml = await root.text();
+    expect(rootXml).toContain('href="/opds/type/manga"');
+    expect(rootXml).toContain("Seguir leyendo");
+    const work = await (await fetch(`${base}/opds/w/pages/berserk`, { headers: basic })).text();
+    expect(work).toContain('pse:count="3"');
+    expect(work).toContain('href="/opds/pse/pages/berserk/v01/{pageNumber}"');
+    expect(work).toContain('href="/api/v1/units/pages/berserk/v01/file"');
+    const page = await fetch(`${base}/opds/pse/pages/berserk/v01/1`, { headers: basic });   // 0-based: page 2
+    expect(Buffer.from(await page.arrayBuffer()).equals(PNG)).toBe(true);
+    const progress = await (await fetch(`${base}/api/v1/progress`, { headers: basic })).json() as { all: { position: number }[] };
+    expect(progress.all[0]!.position).toBe(2);
+    expect(await (await fetch(`${base}/opds/w/pages/berserk`, { headers: basic })).text()).toContain('pse:lastRead="1"');
+    const file = await fetch(`${base}/api/v1/units/pages/berserk/v01/file`, { headers: basic });
+    expect(file.headers.get("content-type")).toBe("application/vnd.comicbook+zip");
+    expect((await fetch(`${base}/opds/continue`, { headers: basic })).status).toBe(200);
+  });
+
   it("serves a placeholder when the UI is not built", async () => {
     const { base } = await start(LIB);
     expect(await (await fetch(`${base}/`)).text()).toContain("UI is not built");

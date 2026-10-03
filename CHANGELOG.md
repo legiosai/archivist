@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 — 2026-10-03
+
+- OPDS 1.2 catalog at `/opds` for phone readers (Panels, Chunky, KOReader, Mihon): continue,
+  per type, everything; each volume downloadable and streamable page by page (PSE). Pages read
+  through PSE save the position.
+- HTTP Basic auth (the token as the password), which is what OPDS readers speak.
+- Trusted networks (`ARCHIVIST_TRUSTED`): no token from Tailscale or the home network.
+- `GET /api/v1/units/…/file`: a volume's own CBZ/ZIP/PDF.
+- Daily database snapshots (`ARCHIVIST_BACKUP_DIR`).
+- Landing at archivist.legios.com.ar.
+
 ## 0.1.0 — 2026-10-03
 
 First version.

@@ -95,6 +95,11 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 Everything the UI does goes through [the API](docs/api.md): works, units, pages, single frames,
 progress, events and resumable uploads. Tools get pages and frames, never clips.
 
+## On the phone
+
+`http://your-server:8780/opds` is an OPDS catalog: add it to Panels, Chunky, KOReader or Mihon.
+Volumes stream page by page, and reading there moves the same "continue" shelf.
+
 ## Develop
 
 ```sh

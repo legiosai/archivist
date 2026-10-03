@@ -12,6 +12,7 @@ import { Store, type Progress } from "./db.ts";
 import { Library } from "./library/index.ts";
 import type { Unit, Work } from "./library/scan.ts";
 import { openPages } from "./media/pages.ts";
+import { rootFeed, workFeed, worksFeed } from "./opds.ts";
 import { frame, playable, prepare, probe, subtitlesVtt } from "./media/video.ts";
 import { UploadError, Uploads } from "./uploads.ts";
 
@@ -114,8 +115,16 @@ export function createApp(cfg: Config): App {
   // Only the socket's address counts: a forwarded-for header is whatever the client says.
   const trusted = cfg.trusted ?? trustedNetworks("");
   const fromTrusted = (req: IncomingMessage) => isTrusted(trusted, req.socket.remoteAddress);
+  // Basic auth too (any user name, the token as password): it is what OPDS readers speak.
+  const basicPassword = (req: IncomingMessage) => {
+    const b = /^Basic (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+    if (!b) return undefined;
+    const raw = Buffer.from(b, "base64").toString("utf8");
+    return raw.slice(raw.indexOf(":") + 1);
+  };
   const authed = (req: IncomingMessage) => !cfg.token || fromTrusted(req)
     || sameToken(/^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1], cfg.token)
+    || sameToken(basicPassword(req), cfg.token)
     || sameToken(cookieToken(req), cfg.token);
 
   // --- views of a work for the API ---------------------------------------------------------
@@ -270,6 +279,48 @@ export function createApp(cfg: Config): App {
     res.end(vtt);
   });
 
+  route("GET", "/api/v1/units/:kind/:slug/:unit/file", (req, res, p) => {
+    const { unit } = find(p);
+    const types: Record<string, string> = { cbz: "application/vnd.comicbook+zip", zip: "application/zip", pdf: "application/pdf" };
+    const type = types[unit.format];
+    if (!type) throw new HttpError(404, "this unit has no single file");
+    const path = library.resolve(unit.path);
+    res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(path.split("/").at(-1)!)}`);
+    sendFile(req, res, path, type);
+  });
+
+  // --- OPDS ---------------------------------------------------------------------------------
+  const atom = (res: ServerResponse, xml: string) => {
+    res.writeHead(200, { "content-type": "application/atom+xml; charset=utf-8", "cache-control": "no-store" });
+    res.end(xml);
+  };
+  route("GET", "/opds", (_q, res) => atom(res, rootFeed(library)));
+  route("GET", "/opds/all", (_q, res) => atom(res, worksFeed(library, store, "all")));
+  route("GET", "/opds/continue", (_q, res) => atom(res, worksFeed(library, store, "continue")));
+  route("GET", "/opds/type/:type", (_q, res, p) => atom(res, worksFeed(library, store, p.type!)));
+  route("GET", "/opds/w/:kind/:slug", async (_q, res, p) => {
+    const w = library.get(`${p.kind}/${p.slug}`);
+    if (!w) throw new HttpError(404, "unknown work");
+    const counts = new Map<string, number>();
+    for (const u of w.units) {
+      try { counts.set(u.key, (await openPages(cfg.library, u, cache)).count); } catch { counts.set(u.key, 0); }
+    }
+    atom(res, workFeed(w, store, counts));
+  });
+  route("GET", "/opds/pse/:kind/:slug/:unit/:n", async (_q, res, p) => {
+    const { work, unit } = find(p);
+    const pages = await openPages(cfg.library, unit, cache);
+    const n = Number(p.n) + 1;                        // PSE counts from 0
+    if (!Number.isInteger(n) || n < 1 || n > pages.count) throw new HttpError(404, "no such page");
+    const page = await pages.page(n);
+    const before = store.forWork(work.id).find((x) => x.unitKey === unit.key);
+    if (!before || before.finished || n > before.position || n < before.position - 1) {
+      store.save(work.id, unit.key, n, pages.count, "pages");
+    }
+    res.writeHead(200, { "content-type": page.type, "content-length": page.data.length, "cache-control": "private, max-age=86400" });
+    res.end(page.data);
+  });
+
   route("GET", "/api/v1/progress", (_q, res) => {
     const latest = store.latest().filter((p) => library.get(p.workId)).map((p) => ({
       ...p, work: workView(library.get(p.workId)!),
@@ -355,14 +406,18 @@ export function createApp(cfg: Config): App {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://archivist");
     try {
-      if (!url.pathname.startsWith("/api/")) {
+      const routed = url.pathname.startsWith("/api/") || url.pathname === "/opds" || url.pathname.startsWith("/opds/");
+      if (!routed) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
         serveWeb(req, res, url.pathname);
         return;
       }
       const hit = match(req.method ?? "GET", url.pathname);
       if (!hit) throw new HttpError(404, "not found");
-      if (!hit.open && !authed(req)) throw new HttpError(401, "token required");
+      if (!hit.open && !authed(req)) {
+        if (url.pathname.startsWith("/opds")) res.setHeader("www-authenticate", 'Basic realm="archivist", charset="UTF-8"');
+        throw new HttpError(401, "token required");
+      }
       if (req.method !== "GET" && req.method !== "HEAD" && req.headers.origin && cfg.token && !fromTrusted(req)) {
         const host = req.headers.host ?? "";
         if (!req.headers.origin.endsWith(`//${host}`)) throw new HttpError(403, "cross-site request refused");

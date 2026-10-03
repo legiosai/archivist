@@ -88,6 +88,12 @@ Todo lo que hace la interfaz pasa por [la API](docs/api.md): obras, unidades,
 páginas, fotogramas sueltos, progreso, eventos y subidas que se retoman. Las
 herramientas reciben páginas y fotogramas, nunca clips.
 
+## En el celular
+
+`http://tu-servidor:8780/opds` es un catálogo OPDS: agregalo en Panels, Chunky,
+KOReader o Mihon. Los tomos se leen página por página, y lo que leés ahí mueve el
+mismo estante de «seguir».
+
 ## Desarrollo
 
 ```sh
