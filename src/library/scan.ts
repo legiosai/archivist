@@ -131,7 +131,19 @@ function subtitlesFor(dir: string, stem: string, relDir: string): string[] {
 function scanVideo(root: string): Work[] {
   const base = join(root, "video");
   const out: Work[] = [];
-  for (const d of entries(base)) {
+  const all = entries(base);
+  const stems = new Set(all.map((d) => basename(d.name, extname(d.name))));
+  for (const d of all) {
+    const yext = extname(d.name).toLowerCase();
+    if (d.isFile() && (yext === ".yaml" || yext === ".yml")) {
+      // A film created in the app, waiting for its file (a sidecar with no video and no folder).
+      const slug = basename(d.name, yext);
+      const hasVideo = all.some((o) => o.name !== d.name && basename(o.name, extname(o.name)) === slug);
+      if (!hasVideo && stems.has(slug)) {
+        out.push(work(root, "video", slug, join("video", d.name), readMeta(join(base, d.name)), "film", []));
+      }
+      continue;
+    }
     const ext = extname(d.name).toLowerCase();
     if (d.isFile() && VIDEO_EXT.has(ext)) {
       const slug = basename(d.name, extname(d.name));
@@ -144,7 +156,7 @@ function scanVideo(root: string): Work[] {
       const dir = join(base, d.name);
       const meta = readMeta(join(dir, "work.yaml"), join(dir, `${d.name}.yaml`), join(base, `${d.name}.yaml`));
       const files = entries(dir).filter((f) => f.isFile() && VIDEO_EXT.has(extname(f.name).toLowerCase()));
-      if (!files.length) continue;
+      if (!files.length && !Object.keys(meta).length) continue;
       const units: Unit[] = files.map((f, i) => {
         const { season, episode } = episodeOf(f.name, meta);
         const s = season ?? 1, e = episode ?? i + 1;
@@ -195,7 +207,7 @@ function scanPages(root: string): Work[] {
       if (f.isFile() && ARCHIVE_EXT.has(fext)) add(basename(f.name, fext), rel, fext.slice(1) as Unit["format"], units.length + 1);
       else if (f.isDirectory() && images(join(dir, f.name)).length) add(f.name, rel, "images", units.length + 1);
     }
-    if (!units.length) continue;
+    if (!units.length && !Object.keys(meta).length) continue;
     units.sort((a, b) => a.volume! - b.volume!);
     const fallback: WorkType = meta.reading === "rtl" ? "manga" : "comic";
     out.push(work(root, "pages", d.name, join("pages", d.name), meta, fallback, units));
