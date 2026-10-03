@@ -81,3 +81,22 @@ GET  /api/v1/events?since=…                terminó una unidad, llegó una obr
 ```
 
 Con token (`Authorization: Bearer …`). La interfaz usa la misma API.
+
+## Estado (2026-10-03, noche)
+
+Fases 1 a 5 hechas el mismo día, y la 6 salvo la landing:
+
+- **0.1.0 publicada** (tag `v0.1.0`). Escáner, lector (derecha a izquierda, izquierda a
+  derecha, vertical, doble página), reproductor (directo o preparado una vez con ffmpeg y
+  NVENC), progreso y estante «Seguir», subidas que se retoman, API con token, imagen Docker
+  probada, unidad de systemd, capturas en el README.
+- **En valensrv**: servicio de usuario `archivist` en `100.66.32.75:8780`, Node 24 de nvm, la
+  biblioteca es la carpeta de entrada de VT-Showrunner (`~/apps/VT-Showrunner/data/inbox`),
+  la base en `~/.local/share/archivist`, copias diarias en `~/backups/archivist` (14).
+  El token vive en `~/.config/archivist/env` (600) y en el `.env` de Showrunner.
+- **Showrunner lo usa**: su Biblioteca muestra cuánto leíste o miraste de cada obra con un
+  enlace para abrirla, y el piloto pone primero lo que terminaste hace poco.
+
+Pendiente: la landing en `archivist.legios.com.ar` (DNS primero, después la página en
+`legiosai/web`), varios usuarios, OPDS para leer desde apps del teléfono, y que Showrunner
+pida las páginas y los fotogramas por la API cuando no comparta disco con archivist.
