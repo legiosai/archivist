@@ -36,7 +36,13 @@ export class Library {
   works = new Map<string, Work>();
   scannedAt = 0;
 
-  constructor(readonly root: string, private readonly store?: Store) {}
+  readonly root: string;
+  private readonly store?: Store;
+
+  constructor(root: string, store?: Store) {
+    this.root = root;
+    this.store = store;
+  }
 
   rescan(): { added: string[]; removed: string[] } {
     const next = new Map(scan(this.root).map((w) => [w.id, w]));

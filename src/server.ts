@@ -24,8 +24,10 @@ const STATIC_TYPES: Record<string, string> = {
 };
 
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 

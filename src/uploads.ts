@@ -23,13 +23,20 @@ export interface Upload {
 }
 
 export class UploadError extends Error {
-  constructor(message: string, readonly status = 400) {
+  readonly status: number;
+  constructor(message: string, status = 400) {
     super(message);
+    this.status = status;
   }
 }
 
 export class Uploads {
-  constructor(private readonly dir: string, private readonly library: Library) {
+  private readonly dir: string;
+  private readonly library: Library;
+
+  constructor(dir: string, library: Library) {
+    this.dir = dir;
+    this.library = library;
     mkdirSync(dir, { recursive: true });
   }
 

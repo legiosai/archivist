@@ -5,19 +5,33 @@
   "description": "Everything you own to read or watch, in one place, and it never forgets where you stopped.",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=22.6" },
-  "repository": { "type": "git", "url": "git+https://github.com/legiosai/archivist.git" },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/legiosai/archivist.git"
+  },
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/main.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "scan": "node --experimental-strip-types src/cli.ts scan"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
+    "scan": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/cli.ts scan"
   },
   "dependencies": {
     "yaml": "^2.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^5.9.0",
+    "vite": "^7.3.6",
     "vitest": "^3.2.0"
   }
 }
