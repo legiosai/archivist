@@ -1,4 +1,5 @@
 /** Settings from the environment. A non-loopback address without a token is refused. */
+import { BlockList, isIP } from "node:net";
 import { resolve } from "node:path";
 
 export interface Config {
@@ -9,6 +10,37 @@ export interface Config {
   token: string | null;
   web: string;
   backup: string | null;
+  /** Networks whose requests need no token (ARCHIVIST_TRUSTED); none unless configured. */
+  trusted: BlockList;
+}
+
+/** Shorthands for ARCHIVIST_TRUSTED, plus any CIDR ("192.168.1.0/24"). */
+export const NETWORKS: Record<string, string[]> = {
+  loopback: ["127.0.0.0/8", "::1/128"],
+  tailscale: ["100.64.0.0/10", "fd7a:115c:a1e0::/48"],
+  lan: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10"],
+};
+
+export function trustedNetworks(spec: string | undefined): BlockList {
+  const list = new BlockList();
+  const items = (spec ?? "").split(/[\s,]+/).filter(Boolean);
+  for (const item of items) {
+    for (const cidr of NETWORKS[item.toLowerCase()] ?? [item]) {
+      const [net, bits] = cidr.split("/");
+      const family = isIP(net ?? "");
+      if (!family || !bits || Number.isNaN(Number(bits))) throw new Error(`ARCHIVIST_TRUSTED: not a network: ${cidr}`);
+      list.addSubnet(net!, Number(bits), family === 6 ? "ipv6" : "ipv4");
+    }
+  }
+  return list;
+}
+
+/** Is this socket address inside a trusted network? IPv4-mapped IPv6 counts as IPv4. */
+export function isTrusted(list: BlockList, address: string | undefined): boolean {
+  if (!address) return false;
+  const a = address.startsWith("::ffff:") && isIP(address.slice(7)) === 4 ? address.slice(7) : address;
+  const family = isIP(a);
+  return family !== 0 && list.check(a, family === 6 ? "ipv6" : "ipv4");
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -29,5 +61,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     token,
     web: resolve(env.ARCHIVIST_WEB || new URL("../dist/web", import.meta.url).pathname),
     backup: env.ARCHIVIST_BACKUP_DIR ? resolve(env.ARCHIVIST_BACKUP_DIR) : null,
+    trusted: trustedNetworks(env.ARCHIVIST_TRUSTED),
   };
 }

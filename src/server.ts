@@ -7,7 +7,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { extname, join, normalize } from "node:path";
-import type { Config } from "./config.ts";
+import { isTrusted, trustedNetworks, type Config } from "./config.ts";
 import { Store, type Progress } from "./db.ts";
 import { Library } from "./library/index.ts";
 import type { Unit, Work } from "./library/scan.ts";
@@ -111,7 +111,10 @@ export function createApp(cfg: Config): App {
   const route = (method: string, pattern: string, handler: Handler, open = false) =>
     routes.push({ method, parts: pattern.split("/").filter(Boolean), handler, open });
 
-  const authed = (req: IncomingMessage) => !cfg.token
+  // Only the socket's address counts: a forwarded-for header is whatever the client says.
+  const trusted = cfg.trusted ?? trustedNetworks("");
+  const fromTrusted = (req: IncomingMessage) => isTrusted(trusted, req.socket.remoteAddress);
+  const authed = (req: IncomingMessage) => !cfg.token || fromTrusted(req)
     || sameToken(/^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1], cfg.token)
     || sameToken(cookieToken(req), cfg.token);
 
@@ -147,7 +150,8 @@ export function createApp(cfg: Config): App {
   }
 
   // --- routes ------------------------------------------------------------------------------
-  route("GET", "/api/v1/health", (_q, res) => json(res, 200, { ok: true, works: library.works.size }), true);
+  route("GET", "/api/v1/health", (req, res) => json(res, 200, { ok: true, works: library.works.size,
+    open: !cfg.token || fromTrusted(req) }), true);
 
   route("POST", "/api/v1/login", async (req, res) => {
     const body = await readJson(req);
@@ -359,7 +363,7 @@ export function createApp(cfg: Config): App {
       const hit = match(req.method ?? "GET", url.pathname);
       if (!hit) throw new HttpError(404, "not found");
       if (!hit.open && !authed(req)) throw new HttpError(401, "token required");
-      if (req.method !== "GET" && req.method !== "HEAD" && req.headers.origin && cfg.token) {
+      if (req.method !== "GET" && req.method !== "HEAD" && req.headers.origin && cfg.token && !fromTrusted(req)) {
         const host = req.headers.host ?? "";
         if (!req.headers.origin.endsWith(`//${host}`)) throw new HttpError(403, "cross-site request refused");
       }

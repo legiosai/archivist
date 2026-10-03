@@ -3,16 +3,18 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { isTrusted, trustedNetworks } from "../src/config.ts";
 import { createApp, type App } from "../src/server.ts";
 import { PNG, makeZip, tempLibrary } from "./helpers.ts";
 
 const TOKEN = "s3cret-token-for-tests";
 let app: App | null = null;
 
-async function start(files: Record<string, string | Buffer>, token: string | null = TOKEN) {
+async function start(files: Record<string, string | Buffer>, token: string | null = TOKEN, trusted = "") {
   const library = tempLibrary(files);
   const data = mkdtempSync(join(tmpdir(), "archivist-data-"));
-  app = createApp({ library, data, host: "127.0.0.1", port: 0, token, web: join(data, "no-web"), backup: null });
+  app = createApp({ library, data, host: "127.0.0.1", port: 0, token, web: join(data, "no-web"), backup: null,
+    trusted: trustedNetworks(trusted) });
   await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   const api = (path: string, init: RequestInit = {}) => fetch(base + path, {
@@ -96,6 +98,20 @@ describe("server", () => {
     expect(exe.status).toBe(400);
     const cross = await api("/api/v1/rescan", { method: "POST", headers: { origin: "http://evil.example" } });
     expect(cross.status).toBe(403);
+  });
+
+  it("lets trusted networks in without the token, and only by the socket address", async () => {
+    const { base } = await start(LIB, TOKEN, "loopback");
+    expect((await fetch(`${base}/api/v1/works`)).status).toBe(200);
+    expect(await (await fetch(`${base}/api/v1/health`)).json()).toMatchObject({ open: true });
+    const t = trustedNetworks("tailscale,lan,203.0.113.0/24");
+    expect(isTrusted(t, "100.66.32.75")).toBe(true);
+    expect(isTrusted(t, "::ffff:192.168.1.20")).toBe(true);
+    expect(isTrusted(t, "fd7a:115c:a1e0::1")).toBe(true);
+    expect(isTrusted(t, "203.0.113.9")).toBe(true);
+    expect(isTrusted(t, "8.8.8.8")).toBe(false);
+    expect(isTrusted(t, "127.0.0.1")).toBe(false);            // loopback only when asked for
+    expect(() => trustedNetworks("nope")).toThrow(/not a network/);
   });
 
   it("serves a placeholder when the UI is not built", async () => {

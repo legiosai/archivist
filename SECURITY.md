@@ -20,8 +20,11 @@ when you configure them. Never your files, never your progress.
 ## What it exposes
 
 An HTTP server meant for your own network (a Tailscale address, say). The API
-asks for a token. Do not put it on the open internet without a reverse proxy
-you trust.
+asks for a token, except from the networks you list in `ARCHIVIST_TRUSTED`
+(`tailscale`, `lan`, CIDRs). That is decided by the connection's own address,
+never by `X-Forwarded-For`: behind a reverse proxy every request comes from the
+proxy, so do not trust the proxy's network. Do not put it on the open internet
+without a reverse proxy you trust.
 
 ## Reporting
 
@@ -51,8 +54,11 @@ si las configurás. Nunca tus archivos ni tu progreso.
 ## Qué expone
 
 Un servidor HTTP pensado para tu propia red (una dirección de Tailscale, por
-ejemplo). La API pide token. No lo pongas en internet abierta sin un proxy
-inverso de confianza.
+ejemplo). La API pide token, salvo desde las redes que pongas en
+`ARCHIVIST_TRUSTED` (`tailscale`, `lan`, CIDRs). Eso se decide por la dirección
+de la conexión, nunca por `X-Forwarded-For`: detrás de un proxy inverso todo
+llega desde el proxy, así que no confíes en su red. No lo pongas en internet
+abierta sin un proxy inverso de confianza.
 
 ## Reportes
 
