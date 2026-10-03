@@ -2,6 +2,8 @@
  * The only state archivist owns: where the owner is in each unit, and what happened (finished a
  * unit, a work arrived) for tools that follow along. node:sqlite, one file under the data folder.
  */
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export interface Progress {
@@ -90,6 +92,20 @@ export class Store {
     return (this.db.prepare("SELECT * FROM events WHERE id > ? ORDER BY id LIMIT ?").all(since, limit) as Row[])
       .map((r) => ({ id: Number(r.id), at: String(r.at), type: r.type as Event["type"], workId: String(r.work_id),
         unitKey: r.unit_key === null ? null : String(r.unit_key) }));
+  }
+
+  /**
+   * A consistent copy of the database (VACUUM INTO, safe while the server runs) named by date,
+   * keeping the newest `keep`. Progress is the one thing the folders can't give back.
+   */
+  snapshot(dir: string, keep = 14, now = new Date()): string {
+    mkdirSync(dir, { recursive: true });
+    const out = join(dir, `archivist-${now.toISOString().slice(0, 10)}.db`);
+    rmSync(out, { force: true });
+    this.db.exec(`VACUUM INTO '${out.replace(/'/g, "''")}'`);
+    const old = readdirSync(dir).filter((f) => /^archivist-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().reverse().slice(keep);
+    for (const f of old) rmSync(join(dir, f), { force: true });
+    return out;
   }
 
   close(): void {

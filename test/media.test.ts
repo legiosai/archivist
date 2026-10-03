@@ -83,3 +83,16 @@ describe("progress", () => {
     expect(store.events(ev[0]!.id)).toEqual([]);
   });
 });
+
+describe("backup", () => {
+  it("writes a dated copy and keeps the newest ones", async () => {
+    const { mkdtempSync, readdirSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "bk-"));
+    const store = new Store(join(dir, "live.db"));
+    store.save("pages/a", "v01", 3, 10, "pages");
+    for (let d = 1; d <= 5; d++) store.snapshot(join(dir, "out"), 3, new Date(Date.UTC(2026, 9, d)));
+    expect(readdirSync(join(dir, "out")).sort()).toEqual(["archivist-2026-10-03.db", "archivist-2026-10-04.db", "archivist-2026-10-05.db"]);
+    const copy = new Store(join(dir, "out", "archivist-2026-10-05.db"));
+    expect(copy.all()[0]).toMatchObject({ workId: "pages/a", position: 3 });
+  });
+});

@@ -377,9 +377,20 @@ export function createApp(cfg: Config): App {
     try { library.rescan(); } catch (err) { console.error("rescan failed", err); }
   }, RESCAN_MS);
   timer.unref();
+  const backup = () => {
+    if (!cfg.backup) return;
+    try { store.snapshot(cfg.backup); } catch (err) { console.error("backup failed", err); }
+  };
+  backup();
+  const daily = setInterval(backup, 24 * 3600_000);
+  daily.unref();
 
   return {
     server, library, store,
-    close: () => new Promise((resolve) => { clearInterval(timer); server.close(() => { store.close(); resolve(); }); }),
+    close: () => new Promise((resolve) => {
+      clearInterval(timer);
+      clearInterval(daily);
+      server.close(() => { store.close(); resolve(); });
+    }),
   };
 }

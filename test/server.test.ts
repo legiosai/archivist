@@ -12,7 +12,7 @@ let app: App | null = null;
 async function start(files: Record<string, string | Buffer>, token: string | null = TOKEN) {
   const library = tempLibrary(files);
   const data = mkdtempSync(join(tmpdir(), "archivist-data-"));
-  app = createApp({ library, data, host: "127.0.0.1", port: 0, token, web: join(data, "no-web") });
+  app = createApp({ library, data, host: "127.0.0.1", port: 0, token, web: join(data, "no-web"), backup: null });
   await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   const api = (path: string, init: RequestInit = {}) => fetch(base + path, {

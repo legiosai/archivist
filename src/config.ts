@@ -8,6 +8,7 @@ export interface Config {
   port: number;
   token: string | null;
   web: string;
+  backup: string | null;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -27,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.ARCHIVIST_PORT || 8780),
     token,
     web: resolve(env.ARCHIVIST_WEB || new URL("../dist/web", import.meta.url).pathname),
+    backup: env.ARCHIVIST_BACKUP_DIR ? resolve(env.ARCHIVIST_BACKUP_DIR) : null,
   };
 }

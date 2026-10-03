@@ -87,6 +87,7 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 | `ARCHIVIST_HOST` | `127.0.0.1` | Any other address requires a token. |
 | `ARCHIVIST_PORT` | `8780` | |
 | `ARCHIVIST_TOKEN` | — | For the API (`Authorization: Bearer`) and the browser login. |
+| `ARCHIVIST_BACKUP_DIR` | — | A daily copy of the database (progress), the newest 14 kept. |
 
 ## API
 
