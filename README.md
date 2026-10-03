@@ -20,8 +20,8 @@ MIT
 
 </div>
 
-> **Status: early.** Phase 1 of [the plan](docs/plan.md): the library scanner.
-> The reader, the player and the API come next. Nothing here is released yet.
+> **Status: 0.1.** It reads, plays, remembers and takes uploads. Single owner, Spanish UI first.
+> What comes next is in [the plan](docs/plan.md).
 
 ## What it is
 
@@ -55,12 +55,45 @@ library/
 The folders are the truth: copy them with rsync, back them up without archivist
 running. The database only holds what a disk cannot — where you are.
 
+## Install
+
+**Docker**
+
+```sh
+docker build -t archivist https://github.com/legiosai/archivist.git
+docker run -d --name archivist -p 8780:8780 \
+  -v /path/to/library:/library -v archivist-data:/data \
+  -e ARCHIVIST_TOKEN="$(openssl rand -hex 24)" archivist
+```
+
+**From source** (Node 22 or newer, plus `ffmpeg` and `poppler-utils`)
+
+```sh
+git clone https://github.com/legiosai/archivist && cd archivist
+npm ci && npm run build
+ARCHIVIST_LIBRARY=/path/to/library ARCHIVIST_TOKEN=… npm start
+```
+
+A systemd user unit and an example environment file are in [`deploy/`](deploy/).
+
+| Variable | Default | |
+|---|---|---|
+| `ARCHIVIST_LIBRARY` | — | The folder with `video/`, `pages/` and `stills/`. |
+| `ARCHIVIST_DATA` | `./data` | The database (progress) and the caches. |
+| `ARCHIVIST_HOST` | `127.0.0.1` | Any other address requires a token. |
+| `ARCHIVIST_PORT` | `8780` | |
+| `ARCHIVIST_TOKEN` | — | For the API (`Authorization: Bearer`) and the browser login. |
+
+## API
+
+Everything the UI does goes through [the API](docs/api.md): works, units, pages, single frames,
+progress, events and resumable uploads. Tools get pages and frames, never clips.
+
 ## Develop
 
 ```sh
 npm install
 npm test
 npm run typecheck
+npm run dev            # the UI with hot reload, against a server on :8780
 ```
-
-Node 22 or newer.

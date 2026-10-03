@@ -1,0 +1,16 @@
+# systemd user unit. Copy to ~/.config/systemd/user/, put the settings in
+# ~/.config/archivist/env (mode 600), then: systemctl --user enable --now archivist
+[Unit]
+Description=archivist: library, reader and player (github.com/legiosai/archivist)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/apps/archivist
+EnvironmentFile=%h/.config/archivist/env
+ExecStart=/usr/bin/env node --experimental-strip-types --no-warnings=ExperimentalWarning src/main.ts
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=default.target

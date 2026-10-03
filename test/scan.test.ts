@@ -68,3 +68,39 @@ describe("names", () => {
     expect(["p10", "p2", "p1"].sort(naturalCompare)).toEqual(["p1", "p2", "p10"]);
   });
 });
+
+describe("library", async () => {
+  const { Library, safeSegment, slugify } = await import("../src/library/index.ts");
+
+  it("creates works as folders plus yaml, and lists them before their first file", () => {
+    const root = lib({ "video/.keep": "" });
+    const library = new Library(root);
+    library.rescan();
+    const film = library.create({ title: "La noche de los muertos vivientes", type: "film", year: 1968 });
+    expect(film.id).toBe("video/la-noche-de-los-muertos-vivientes");
+    expect(film.units).toEqual([]);
+    const manga = library.create({ title: "Akira", type: "manga" });
+    expect(manga.reading).toBe("rtl");
+    const dark = library.create({ title: "Dark", type: "series" });
+    expect(library.list().map((w) => w.id).sort()).toEqual([dark.id, manga.id, film.id].sort());
+  });
+
+  it("decides where an upload goes and refuses the rest", () => {
+    const root = lib({ "video/.keep": "" });
+    const library = new Library(root);
+    library.rescan();
+    const film = library.create({ title: "Nosferatu", type: "film" });
+    const series = library.create({ title: "Dark", type: "series" });
+    const manga = library.create({ title: "Akira", type: "manga" });
+    expect(library.target(film, "whatever.mkv")).toBe("video/nosferatu.mkv");
+    expect(library.target(film, "Nosferatu.es.srt")).toBe("video/nosferatu.es.srt");
+    expect(library.target(series, "Dark.S01E01.mkv")).toBe("video/dark/Dark.S01E01.mkv");
+    expect(library.target(manga, "Vol 2/003.jpg")).toBe("pages/akira/Vol 2/003.jpg");
+    expect(library.target(manga, "Akira v01.cbz")).toBe("pages/akira/Akira v01.cbz");
+    expect(() => library.target(manga, "run.sh")).toThrow();
+    expect(() => library.target(series, "../x.mkv")).toThrow();
+    expect(() => library.resolve("../../etc/passwd")).toThrow(/outside/);
+    expect(slugify("Ñandú: el regreso!")).toBe("nandu-el-regreso");
+    expect(() => safeSegment("..")).toThrow();
+  });
+});

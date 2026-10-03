@@ -20,9 +20,8 @@ MIT
 
 </div>
 
-> **Estado: temprano.** Fase 1 del [plan](docs/plan.md): el escáner de la
-> biblioteca. Después vienen el lector, el reproductor y la API. Todavía no hay
-> ninguna versión publicada.
+> **Estado: 0.1.** Lee, reproduce, recuerda y recibe subidas. Un solo dueño,
+> interfaz en castellano. Lo que sigue está en el [plan](docs/plan.md).
 
 ## Qué es
 
@@ -57,12 +56,39 @@ library/
 Las carpetas mandan: se copian con rsync y se respaldan sin que archivist esté
 corriendo. La base solo guarda lo que un disco no puede: dónde quedaste.
 
+## Instalar
+
+**Docker**
+
+```sh
+docker build -t archivist https://github.com/legiosai/archivist.git
+docker run -d --name archivist -p 8780:8780 \
+  -v /ruta/a/la/biblioteca:/library -v archivist-data:/data \
+  -e ARCHIVIST_TOKEN="$(openssl rand -hex 24)" archivist
+```
+
+**Desde el código** (Node 22 o más nuevo, más `ffmpeg` y `poppler-utils`)
+
+```sh
+git clone https://github.com/legiosai/archivist && cd archivist
+npm ci && npm run build
+ARCHIVIST_LIBRARY=/ruta/a/la/biblioteca ARCHIVIST_TOKEN=… npm start
+```
+
+En [`deploy/`](deploy/) hay una unidad de systemd de usuario y un archivo de
+entorno de ejemplo. Las variables están en el [README](README.md#install).
+
+## API
+
+Todo lo que hace la interfaz pasa por [la API](docs/api.md): obras, unidades,
+páginas, fotogramas sueltos, progreso, eventos y subidas que se retoman. Las
+herramientas reciben páginas y fotogramas, nunca clips.
+
 ## Desarrollo
 
 ```sh
 npm install
 npm test
 npm run typecheck
+npm run dev            # la interfaz con recarga, contra un servidor en :8780
 ```
-
-Node 22 o más nuevo.
