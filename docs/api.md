@@ -31,7 +31,6 @@ Ids: a work is `<kind>/<slug>` (`pages/berserk`, `video/dark`); a unit is a key 
 | `GET /api/v1/units/:kind/:slug/:unit/video` | The video, with HTTP ranges; `409 {preparing, progress}` while it converts. |
 | `GET /api/v1/units/:kind/:slug/:unit/frame?t=SECONDS` | One frame as JPEG. |
 | `GET /api/v1/units/:kind/:slug/:unit/subtitles/:i` | A subtitle file as WebVTT. |
-
 | `GET /api/v1/units/:kind/:slug/:unit/file` | The volume's own file (CBZ, ZIP, PDF), for download. |
 
 Tools get pages and single frames. There is no endpoint that cuts a clip, on purpose
