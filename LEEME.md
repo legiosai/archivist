@@ -18,6 +18,8 @@ MIT
   <img alt="Legios" src="docs/legios-claro.svg" width="132" height="43">
 </picture></a>
 
+<img src="docs/img/library.jpg" alt="La biblioteca: el estante de seguir y todas las obras" width="640">
+
 </div>
 
 > **Estado: 0.1.** Lee, reproduce, recuerda y recibe subidas. Un solo dueño,
@@ -37,6 +39,8 @@ Una biblioteca auto-alojada de lo que ya tenés en disco:
   con un solo lugar para seguir.
 - **Una API** con token, para que una herramienta liste obras, pida una página
   o un fotograma y sepa dónde quedaste.
+
+<img src="docs/img/reader.jpg" alt="El lector, dos páginas de derecha a izquierda" width="640">
 
 ## Qué no es
 

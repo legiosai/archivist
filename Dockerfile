@@ -16,6 +16,7 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src ./src
+RUN mkdir -p /library /data && chown node:node /library /data
 ENV ARCHIVIST_LIBRARY=/library ARCHIVIST_DATA=/data ARCHIVIST_HOST=0.0.0.0 ARCHIVIST_PORT=8780 NODE_ENV=production
 EXPOSE 8780
 VOLUME ["/library", "/data"]

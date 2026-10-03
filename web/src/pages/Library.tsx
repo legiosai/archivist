@@ -68,7 +68,7 @@ export function Library({ onAuth }: { onAuth: () => void }) {
                 <a key={w.id} className="tile" href={`#/w/${w.id}`}>
                   <div className="cover">{w.cover ? <img src={w.cover} alt="" loading="lazy" /> : <span>{w.title.slice(0, 1)}</span>}</div>
                   <strong>{w.title}</strong>
-                  <span className="faint small">{TYPE_LABEL[w.type]}{w.year ? ` · ${w.year}` : ""} · {w.units} {w.kind === "video" ? (w.units === 1 ? "archivo" : "episodios") : "tomos"}</span>
+                  <span className="faint small">{TYPE_LABEL[w.type]}{w.year ? ` · ${w.year}` : ""} · {w.units} {w.kind === "video" ? (w.type === "film" ? "archivo" : w.units === 1 ? "episodio" : "episodios") : w.units === 1 ? "tomo" : "tomos"}</span>
                   {w.units > 0 && <div className="bar"><div style={{ width: `${(w.finished / w.units) * 100}%` }} /></div>}
                 </a>
               ))}

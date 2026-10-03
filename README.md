@@ -18,6 +18,8 @@ MIT
   <img alt="Legios" src="docs/legios-claro.svg" width="132" height="43">
 </picture></a>
 
+<img src="docs/img/library.jpg" alt="The library: a continue shelf and every work, read or watched" width="640">
+
 </div>
 
 > **Status: 0.1.** It reads, plays, remembers and takes uploads. Single owner, Spanish UI first.
@@ -37,6 +39,8 @@ A self-hosted library for what you already have on disk:
   one place to continue.
 - **An API** with a token, so a tool can list works, ask for a page or a frame,
   and read where you are.
+
+<img src="docs/img/reader.jpg" alt="The reader, two pages right to left" width="640">
 
 ## What it is not
 
