@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>archivist · everything you own to read or watch, and where you stopped</title>
+<meta name="description" content="A self-hosted library, reader and player for the manga, comics, films, series and anime on your own disk. It remembers the page and the second, and has an API for your tools.">
+<link rel="canonical" href="https://archivist.legios.com.ar/">
+<link rel="alternate" hreflang="es" href="https://archivist.legios.com.ar/es/">
+<link rel="alternate" hreflang="en" href="https://archivist.legios.com.ar/">
+<link rel="alternate" hreflang="x-default" href="https://archivist.legios.com.ar/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="archivist">
+<meta property="og:description" content="Everything you own to read or watch, in one place — and it never forgets where you stopped.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://archivist.legios.com.ar/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://archivist.legios.com.ar/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --fondo:#0e0d0c; --sup:#171512; --sup2:#1f1c18;
+  --borde:rgba(240,236,229,.09); --borde2:rgba(240,236,229,.16);
+  --texto:#f0ece5; --medio:rgba(240,236,229,.66); --tenue:rgba(240,236,229,.44);
+  --ambar:#e8b04a; --radio:14px; --ancho:1080px;
+  --serif:"Fraunces",Georgia,serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--fondo);color:var(--texto);font:400 16px/1.65 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+.env{max-width:var(--ancho);margin:0 auto;padding:0 24px}
+a{color:inherit}
+h1,h2{font-family:var(--serif);font-weight:500;line-height:1.06;letter-spacing:-.012em;margin:0;font-optical-sizing:auto;font-variation-settings:"SOFT" 60,"WONK" 0}
+h1{font-size:clamp(40px,6.4vw,72px)}
+h2{font-size:clamp(28px,3.6vw,40px);margin-bottom:18px}
+h3{font-size:17px;margin:0 0 6px}
+p{margin:0 0 14px;color:var(--medio)}
+code,pre{font-family:var(--mono);font-size:13.5px}
+nav.top{display:flex;justify-content:space-between;align-items:center;padding:22px 0}
+.marca{display:flex;gap:10px;align-items:center;font-weight:700;font-size:19px;text-decoration:none}
+.marca i{width:12px;height:17px;background:var(--ambar);clip-path:polygon(0 0,100% 0,100% 100%,50% 75%,0 100%)}
+nav.top .links{display:flex;gap:22px;font-size:14px}
+nav.top .links a{text-decoration:none;color:var(--medio)}
+nav.top .links a:hover{color:var(--texto)}
+.hero{padding:56px 0 28px}
+.hero p.bajada{font-size:clamp(17px,2vw,20px);max-width:640px;margin:22px 0 28px}
+.botones{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:10px;border:1px solid var(--borde2);text-decoration:none;font-weight:600;font-size:15px}
+.btn.ambar{background:var(--ambar);border-color:var(--ambar);color:#17130a}
+.btn:hover{filter:brightness(1.08)}
+.captura{margin:44px 0 12px;border-radius:var(--radio);border:1px solid var(--borde);overflow:hidden;background:var(--sup)}
+.captura img{display:block;width:100%;height:auto}
+.pie{font-size:13px;color:var(--tenue);text-align:center}
+section{padding:64px 0;border-top:1px solid var(--borde)}
+.grilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px}
+.tarjeta{background:var(--sup);border:1px solid var(--borde);border-radius:var(--radio);padding:20px}
+.tarjeta p{margin:0;font-size:15px}
+.reglas{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.reglas li{background:var(--sup);border:1px solid var(--borde);border-radius:12px;padding:14px 18px;color:var(--medio)}
+.reglas strong{color:var(--texto)}
+pre{background:var(--sup2);border:1px solid var(--borde);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:0 0 16px;color:var(--texto)}
+.dos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px;align-items:start}
+footer{padding:40px 0 64px;border-top:1px solid var(--borde);font-size:14px;color:var(--tenue);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer a{color:var(--medio)}
+</style>
+</head>
+<body>
+<div class="env">
+  <nav class="top">
+    <a class="marca" href="./"><i></i>archivist</a>
+    <div class="links">
+      <a href="#what">What it is</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/legiosai/archivist/blob/main/docs/api.md">API</a>
+      <a href="https://github.com/legiosai/archivist">GitHub</a>
+      <a href="es/">Castellano</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <h1>Everything you own to read or watch.<br>And where you stopped.</h1>
+    <p class="bajada">A self-hosted library, reader and player for the manga, comics, films, series and anime on your own disk. One place to continue, the page and the second remembered, and an API for your tools.</p>
+    <div class="botones">
+      <a class="btn ambar" href="#install">Install</a>
+      <a class="btn" href="https://github.com/legiosai/archivist">Source on GitHub</a>
+    </div>
+    <div class="captura"><img src="img/library.jpg" alt="The library: a continue shelf, then every work with its progress" width="990" height="510"></div>
+    <p class="pie">The library: what you left halfway first, then everything, read or watched.</p>
+  </header>
+
+  <section id="what">
+    <h2>What it does</h2>
+    <div class="grilla">
+      <div class="tarjeta"><h3>A reader</h3><p>CBZ, ZIP, PDF or folders of images. Right to left for manga, left to right for comics, vertical for webtoons, two pages at a time. Keys, taps and swipes.</p></div>
+      <div class="tarjeta"><h3>A player</h3><p>What the browser plays goes straight out, with seeking. Everything else is converted once with ffmpeg (on the GPU when there is one). Subtitles and the next episode.</p></div>
+      <div class="tarjeta"><h3>It remembers</h3><p>The volume and the page, the episode and the second. A "continue" shelf for everything, and a log of what you finished.</p></div>
+      <div class="tarjeta"><h3>An API</h3><p>Works, units, pages, single frames, progress and events, with a token. Your home network and Tailscale can skip it.</p></div>
+    </div>
+    <div class="captura"><img src="img/reader.jpg" alt="The reader showing two manga pages, right to left" width="1200" height="517"></div>
+  </section>
+
+  <section>
+    <h2>What it will never do</h2>
+    <ul class="reglas">
+      <li><strong>Fetch the works.</strong> No downloader, no scraper, no source lists. It reads the files you already have.</li>
+      <li><strong>Phone home.</strong> No account, no cloud, no telemetry. Only metadata lookups, if you turn them on.</li>
+      <li><strong>Own your files.</strong> The folders are the truth: copy them with rsync, back them up without archivist running. The database only holds where you are.</li>
+      <li><strong>Cut clips for anyone.</strong> Tools get pages and single frames. Playback is for your own screen.</li>
+    </ul>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <div class="dos">
+      <div>
+        <h3>Docker</h3>
+<pre>docker build -t archivist https://github.com/legiosai/archivist.git
+docker run -d --name archivist -p 8780:8780 \
+  -v /path/to/library:/library -v archivist-data:/data \
+  -e ARCHIVIST_TOKEN="$(openssl rand -hex 24)" \
+  -e ARCHIVIST_TRUSTED=lan,tailscale archivist</pre>
+      </div>
+      <div>
+        <h3>From source</h3>
+<pre>git clone https://github.com/legiosai/archivist
+cd archivist && npm ci && npm run build
+ARCHIVIST_LIBRARY=/path/to/library \
+ARCHIVIST_TOKEN=… npm start</pre>
+        <p>Node 22 or newer, ffmpeg and poppler. A systemd unit is in <code>deploy/</code>.</p>
+      </div>
+    </div>
+    <h3>The library on disk</h3>
+<pre>library/
+  video/&lt;work&gt;.mp4 + &lt;work&gt;.yaml          a film
+  video/&lt;work&gt;/S01E01.mkv … + work.yaml    a series or an anime
+  pages/&lt;work&gt;/vol-01.cbz … + work.yaml    a manga or a comic</pre>
+  </section>
+
+  <footer>
+    <span>archivist · MIT · an instrument by <a href="https://github.com/legiosai">Legios</a></span>
+    <span><a href="https://github.com/legiosai/archivist/releases">Releases</a> · <a href="https://github.com/legiosai/archivist/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/legiosai/archivist/blob/main/SOUL.md">Soul</a></span>
+  </footer>
+</div>
+</body>
+</html>
