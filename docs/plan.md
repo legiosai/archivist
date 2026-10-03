@@ -97,6 +97,19 @@ Fases 1 a 5 hechas el mismo día, y la 6 salvo la landing:
 - **Showrunner lo usa**: su Biblioteca muestra cuánto leíste o miraste de cada obra con un
   enlace para abrirla, y el piloto pone primero lo que terminaste hace poco.
 
-Pendiente: la landing en `archivist.legios.com.ar` (DNS primero, después la página en
-`legiosai/web`), varios usuarios, OPDS para leer desde apps del teléfono, y que Showrunner
-pida las páginas y los fotogramas por la API cuando no comparta disco con archivist.
+Pendiente (al cierre de la 0.1): la landing, varios usuarios, OPDS, y que Showrunner pida las
+páginas y los fotogramas por la API cuando no comparta disco con archivist.
+
+## Estado (2026-10-03, 0.2.0)
+
+- **Landing** en https://archivist.legios.com.ar (y `/es/`): GitHub Pages desde `docs/`,
+  CNAME `archivist` → `legiosai.github.io` en Cloudflare, sin proxy, certificado de GitHub y
+  HTTPS forzado.
+- **Red de confianza**: `ARCHIVIST_TRUSTED`. En valensrv escucha en todas las interfaces y no
+  pide token desde Tailscale ni desde la LAN de casa (192.168.100.0/24); las redes de Docker
+  del servidor y cualquier otra sí lo piden.
+- **OPDS** en `/opds` para leer desde el celular (Panels, Chunky, KOReader, Mihon), con PSE
+  que guarda la página, y Basic auth con el token como contraseña.
+
+Sigue: varios usuarios (cada uno con su progreso), mover la biblioteca a `/srv` en valensrv
+(pide sudo una vez), y la API de páginas para Showrunner cuando no compartan disco.
