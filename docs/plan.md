@@ -129,3 +129,12 @@ sistema a `/srv/vt-showrunner/data` (el SSD de 960 GB, 540 GB libres). Copia con
 segunda pasada con checksums sin diferencias. `~/apps/VT-Showrunner/data` es ahora un enlace a
 esa carpeta, `SHOWRUNNER_DATA` y `ARCHIVIST_LIBRARY` apuntan ahí, y la copia vieja quedó en
 `~/apps/VT-Showrunner/data.moved-20261004` hasta confirmar que no hace falta.
+
+## 2026-10-04: Showrunner por la API
+
+Si Showrunner corre en otra máquina que archivist, ya no hace falta compartir disco: las obras
+que solo tiene archivist aparecen en su Biblioteca, y cuando un video necesita una, Showrunner
+baja por la API las páginas de los tomos que cubre, o fotogramas sueltos de la película o de los
+episodios, repartidos a lo largo de la duración (nunca clips). Probado contra el archivist de
+valensrv desde otra máquina de la LAN. En valensrv siguen compartiendo disco y ese camino no se
+usa. Con esto el plan quedó completo.
