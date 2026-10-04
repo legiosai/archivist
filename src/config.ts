@@ -12,6 +12,10 @@ export interface Config {
   backup: string | null;
   /** Networks whose requests need no token (ARCHIVIST_TRUSTED); none unless configured. */
   trusted: BlockList;
+  /** Serve video to requests that came through a reverse proxy (ARCHIVIST_PROXIED_VIDEO=on). */
+  proxiedVideo?: boolean;
+  /** More names that reach this server from a trusted network (ARCHIVIST_HOSTS), beyond the usual ones. */
+  hosts?: string[];
 }
 
 /** Shorthands for ARCHIVIST_TRUSTED, plus any CIDR ("192.168.1.0/24"). */
@@ -62,5 +66,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     web: resolve(env.ARCHIVIST_WEB || new URL("../dist/web", import.meta.url).pathname),
     backup: env.ARCHIVIST_BACKUP_DIR ? resolve(env.ARCHIVIST_BACKUP_DIR) : null,
     trusted: trustedNetworks(env.ARCHIVIST_TRUSTED),
+    proxiedVideo: /^(1|on|true|yes)$/i.test(env.ARCHIVIST_PROXIED_VIDEO ?? ""),
+    hosts: (env.ARCHIVIST_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean),
   };
 }

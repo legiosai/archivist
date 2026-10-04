@@ -40,9 +40,63 @@ describe("server", () => {
     expect((await fetch(`${base}/api/v1/works`)).status).toBe(401);
     expect((await fetch(`${base}/api/v1/login`, { method: "POST", body: JSON.stringify({ token: "nope" }) })).status).toBe(401);
     const login = await fetch(`${base}/api/v1/login`, { method: "POST", body: JSON.stringify({ token: TOKEN }) });
-    const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
-    expect(cookie).toMatch(/^archivist_token=/);
+    const setCookie = login.headers.get("set-cookie")!;
+    const cookie = setCookie.split(";")[0]!;
+    expect(cookie).toMatch(/^archivist_session=/);
+    expect(setCookie).not.toContain(TOKEN);                    // the cookie is a session, never the token
+    expect(setCookie).not.toContain("Secure");                 // plain http on the LAN
     expect((await fetch(`${base}/api/v1/works`, { headers: { cookie } })).status).toBe(200);
+    await fetch(`${base}/api/v1/logout`, { method: "POST", headers: { cookie } });
+    expect((await fetch(`${base}/api/v1/works`, { headers: { cookie } })).status).toBe(401);
+  });
+
+  it("never trusts what came through the tunnel, even from loopback", async () => {
+    const { base } = await start({ ...LIB, "video/clip.mp4": "not really a video" }, TOKEN, "loopback");
+    const tunnel = { "cf-connecting-ip": "198.51.100.7", "x-forwarded-proto": "https" };
+    expect((await fetch(`${base}/api/v1/works`)).status).toBe(200);                       // the LAN, or a local tool
+    expect((await fetch(`${base}/api/v1/works`, { headers: tunnel })).status).toBe(401);  // the internet
+    expect(await (await fetch(`${base}/api/v1/health`, { headers: tunnel })).json()).toMatchObject({ open: false });
+
+    const login = await fetch(`${base}/api/v1/login`, { method: "POST", headers: tunnel, body: JSON.stringify({ token: TOKEN }) });
+    const setCookie = login.headers.get("set-cookie")!;
+    expect(setCookie).toContain("Secure");
+    const cookie = setCookie.split(";")[0]!;
+    expect((await fetch(`${base}/api/v1/works`, { headers: { ...tunnel, cookie } })).status).toBe(200);
+    // Video stays at home unless ARCHIVIST_PROXIED_VIDEO says otherwise.
+    const video = await fetch(`${base}/api/v1/units/video/clip/film/video`, { headers: { ...tunnel, cookie } });
+    expect(video.status).toBe(403);
+
+    const sessions = await (await fetch(`${base}/api/v1/sessions`, { headers: { ...tunnel, cookie } })).json();
+    expect(sessions.sessions).toHaveLength(1);
+    expect(sessions.sessions[0].ip).toBe("198.51.100.7");
+    await fetch(`${base}/api/v1/sessions`, { method: "DELETE", headers: { ...tunnel, cookie } });
+    expect((await fetch(`${base}/api/v1/works`, { headers: { ...tunnel, cookie } })).status).toBe(401);
+  });
+
+  it("locks a client out after too many wrong tokens, by its real address", async () => {
+    const { base } = await start(LIB);
+    const from = (ip: string) => ({ "cf-connecting-ip": ip });
+    for (let i = 0; i < 10; i++) {
+      const r = await fetch(`${base}/api/v1/login`, { method: "POST", headers: from("198.51.100.8"), body: JSON.stringify({ token: "nope" }) });
+      expect(r.status).toBe(401);
+    }
+    const right = await fetch(`${base}/api/v1/login`, { method: "POST", headers: from("198.51.100.8"), body: JSON.stringify({ token: TOKEN }) });
+    expect(right.status).toBe(429);                            // even the right token, until the window ends
+    expect(right.headers.get("retry-after")).toBe("900");
+    expect((await fetch(`${base}/api/v1/works`, { headers: { ...from("198.51.100.9"), authorization: `Bearer ${TOKEN}` } })).status).toBe(200);
+    for (let i = 0; i < 10; i++) await fetch(`${base}/api/v1/works`, { headers: { ...from("198.51.100.10"), authorization: "Bearer nope" } });
+    expect((await fetch(`${base}/api/v1/works`, { headers: from("198.51.100.10") })).status).toBe(429);
+  });
+
+  it("sends the hardening headers, and HSTS only over https", async () => {
+    const { base } = await start(LIB);
+    const plain = await fetch(`${base}/api/v1/health`);
+    expect(plain.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(plain.headers.get("x-frame-options")).toBe("DENY");
+    expect(plain.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(plain.headers.get("strict-transport-security")).toBeNull();
+    const tls = await fetch(`${base}/api/v1/health`, { headers: { "cf-connecting-ip": "198.51.100.7", "cf-visitor": '{"scheme":"https"}' } });
+    expect(tls.headers.get("strict-transport-security")).toContain("max-age=");
   });
 
   it("lists works, serves pages and keeps progress", async () => {

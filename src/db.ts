@@ -3,6 +3,7 @@
  * happened (finished a unit, a work arrived) for tools that follow along. node:sqlite, one file
  * under the data folder. The first profile is the owner's; a household adds more.
  */
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -63,6 +64,8 @@ export class Store {
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, last_seen TEXT NOT NULL,
+        ip TEXT, agent TEXT);
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, type TEXT NOT NULL,
         work_id TEXT NOT NULL, unit_key TEXT);
@@ -151,6 +154,48 @@ export class Store {
   latest(profile = OWNER): Progress[] {
     const seen = new Set<string>();
     return this.all(profile).filter((p) => !seen.has(p.workId) && seen.add(p.workId));
+  }
+
+  // --- browser sessions ----------------------------------------------------------------------
+  // The cookie carries a random id, never the token; only its hash is stored, so a copy of the
+  // database can't log anyone in. Sessions last SESSION_DAYS from their last use.
+  static readonly SESSION_DAYS = 90;
+
+  private static hash(id: string): string {
+    return createHash("sha256").update(id).digest("hex");
+  }
+
+  createSession(ip: string, agent: string, now = new Date()): string {
+    const id = randomBytes(32).toString("base64url");
+    const at = now.toISOString();
+    this.db.prepare("INSERT INTO sessions (hash, created_at, last_seen, ip, agent) VALUES (?, ?, ?, ?, ?)")
+      .run(Store.hash(id), at, at, ip, agent.slice(0, 200));
+    return id;
+  }
+
+  checkSession(id: string | undefined, now = new Date()): boolean {
+    if (!id) return false;
+    const row = this.db.prepare("SELECT last_seen FROM sessions WHERE hash = ?").get(Store.hash(id)) as Row | undefined;
+    if (!row) return false;
+    const age = now.getTime() - Date.parse(String(row.last_seen));
+    if (age > Store.SESSION_DAYS * 86_400_000) {
+      this.endSession(id);
+      return false;
+    }
+    if (age > 3_600_000) this.db.prepare("UPDATE sessions SET last_seen = ? WHERE hash = ?").run(now.toISOString(), Store.hash(id));
+    return true;
+  }
+
+  endSession(id: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE hash = ?").run(Store.hash(id));
+  }
+
+  sessions(): { created_at: string; last_seen: string; ip: string; agent: string }[] {
+    return this.db.prepare("SELECT created_at, last_seen, ip, agent FROM sessions ORDER BY last_seen DESC").all() as never;
+  }
+
+  endAllSessions(): number {
+    return Number(this.db.prepare("DELETE FROM sessions").run().changes);
   }
 
   // --- events --------------------------------------------------------------------------------

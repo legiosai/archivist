@@ -1,7 +1,9 @@
 /**
- * The HTTP server: the API under /api/v1 (the UI uses the same one) and the built UI. Plain
- * node:http, no framework. Auth: `Authorization: Bearer <token>` for tools, or the same token in
- * an HttpOnly cookie after POST /api/v1/login for the browser.
+ * The HTTP server: the API under /api/v1 (the UI uses the same one), the MCP server for agents at
+ * /mcp, OPDS for phone readers, and the built UI. Plain node:http, no framework. Auth:
+ * `Authorization: Bearer <token>` for tools and agents, Basic for OPDS, and for the browser a
+ * revocable session cookie from POST /api/v1/login (the cookie never holds the token). What
+ * changes behind a public proxy is in security.ts.
  */
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -15,9 +17,22 @@ import { openPages } from "./media/pages.ts";
 import { rootFeed, workFeed, worksFeed } from "./opds.ts";
 import { frame, playable, prepare, probe, subtitlesVtt } from "./media/video.ts";
 import { UploadError, Uploads } from "./uploads.ts";
+import { FailureLimiter, clientOf, hardenHeaders, localHost } from "./security.ts";
+import { serveMcp, type Catalog } from "./mcp.ts";
+import { llmsTxt, openapi } from "./openapi.ts";
+import { search } from "./search.ts";
+import { scaleDown } from "./media/image.ts";
+
+const VERSION = (() => {
+  try {
+    return String(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 const RESCAN_MS = 5 * 60_000;
-const COOKIE = "archivist_token";
+const SESSION_COOKIE = "archivist_session";
 const PROFILE_COOKIE = "archivist_profile";
 const STATIC_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
@@ -42,7 +57,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
   res.end(data);
 }
 
-async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage, limit: number): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
@@ -50,8 +65,13 @@ async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<Record
     if (size > limit) throw new HttpError(413, "body too large");
     chunks.push(c as Buffer);
   }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<Record<string, unknown>> {
+  const raw = await readBody(req, limit);
   try {
-    const v = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    const v = JSON.parse(raw || "{}");
     if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error();
     return v as Record<string, unknown>;
   } catch {
@@ -96,7 +116,7 @@ function cookie(req: IncomingMessage, name: string): string | undefined {
   return m ? decodeURIComponent(m[1]!) : undefined;
 }
 
-const cookieToken = (req: IncomingMessage) => cookie(req, COOKIE);
+const sessionId = (req: IncomingMessage) => cookie(req, SESSION_COOKIE);
 
 export interface App {
   server: Server;
@@ -115,9 +135,12 @@ export function createApp(cfg: Config): App {
   const route = (method: string, pattern: string, handler: Handler, open = false) =>
     routes.push({ method, parts: pattern.split("/").filter(Boolean), handler, open });
 
-  // Only the socket's address counts: a forwarded-for header is whatever the client says.
+  // Only the socket's address counts, and a request that came through the reverse proxy is never
+  // trusted (security.ts): from the tunnel, 127.0.0.1 means "someone on the internet".
   const trusted = cfg.trusted ?? trustedNetworks("");
-  const fromTrusted = (req: IncomingMessage) => isTrusted(trusted, req.socket.remoteAddress);
+  const limiter = new FailureLimiter();
+  const fromTrusted = (req: IncomingMessage) => !clientOf(req).proxied && isTrusted(trusted, req.socket.remoteAddress)
+    && localHost(req.headers.host, cfg.hosts);
   // Basic auth too (any user name, the token as password): it is what OPDS readers speak.
   const basicPassword = (req: IncomingMessage) => {
     const b = /^Basic (.+)$/.exec(req.headers.authorization ?? "")?.[1];
@@ -128,7 +151,14 @@ export function createApp(cfg: Config): App {
   const authed = (req: IncomingMessage) => !cfg.token || fromTrusted(req)
     || sameToken(/^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1], cfg.token)
     || sameToken(basicPassword(req), cfg.token)
-    || sameToken(cookieToken(req), cfg.token);
+    || store.checkSession(sessionId(req));
+  const presentedCredentials = (req: IncomingMessage) => !!req.headers.authorization || !!sessionId(req);
+  const failed = (req: IncomingMessage, path: string) => {
+    const c = clientOf(req);
+    const n = limiter.fail(c.ip);
+    // One line per failure, for CrowdSec (journald): never the credential itself.
+    console.warn(`archivist: auth failure from ${c.ip} on ${path} (${n})`);
+  };
 
   /**
    * Whose progress a request reads and writes: the X-Archivist-Profile header or ?profile= (tools),
@@ -177,17 +207,116 @@ export function createApp(cfg: Config): App {
     return { work, unit };
   }
 
+  function status(w: ReturnType<typeof workView>): "reading" | "finished" | "unstarted" {
+    if (w.units && w.finished === w.units) return "finished";
+    return w.last || w.finished ? "reading" : "unstarted";
+  }
+
+  // What the MCP tools see: the same views as the API.
+  const catalog: Catalog = {
+    version: VERSION,
+    search: (q, type, limit, profile) => search(library.list().filter((w) => !type || w.type === type), q, limit)
+      .map((r) => ({ ...workView(r.work, false, profile), score: r.score })),
+    works: (type, state, profile) => library.list().filter((w) => !type || w.type === type)
+      .map((w) => workView(w, false, profile)).filter((w) => !state || status(w) === state)
+      .sort((a, b) => a.title.localeCompare(b.title, "es")),
+    work: (id, profile) => {
+      const w = library.get(id);
+      return w ? workView(w, true, profile) : null;
+    },
+    progress: (profile) => ({ profile, latest: store.latest(profile).filter((p) => library.get(p.workId)).map((p) => ({
+      ...p, work: library.get(p.workId)!.title })) }),
+    saveProgress: (id, key, position, total, profile) => {
+      const { work, unit } = findById(id, key);
+      return store.save(work.id, unit.key, position, total, unit.format === "video" ? "video" : "pages", new Date(), profile);
+    },
+    pages: async (id, key) => {
+      const { unit } = findById(id, key);
+      if (unit.format === "video") throw new HttpError(400, "this unit is a video: use get_frame");
+      return (await openPages(cfg.library, unit, cache)).count;
+    },
+    page: async (id, key, n, maxWidth) => {
+      const { unit } = findById(id, key);
+      const page = await (await openPages(cfg.library, unit, cache)).page(n);
+      return scaleDown(page.data, page.type, maxWidth);
+    },
+    duration: async (id, key) => {
+      const { unit } = findById(id, key);
+      if (unit.format !== "video") throw new HttpError(400, "this unit has pages: use get_page");
+      return (await probe(library.resolve(unit.path))).duration;
+    },
+    frame: async (id, key, seconds, maxWidth) => {
+      const { unit } = findById(id, key);
+      const img = await frame(library.resolve(unit.path), seconds, cache);
+      return maxWidth && maxWidth < 1920 ? (await scaleDown(img, "image/jpeg", maxWidth)).data : img;
+    },
+    events: (since) => ({ events: store.events(since, 200) }),
+    profiles: () => ({ profiles: store.profiles() }),
+    profileExists: (id) => store.hasProfile(id),
+  };
+
+  function findById(id: string, key: string): { work: Work; unit: Unit } {
+    const [kind, ...rest] = id.split("/");
+    return find({ kind: kind ?? "", slug: rest.join("/"), unit: key });
+  }
+
+  const baseUrl = (req: IncomingMessage) => `${clientOf(req).https ? "https" : "http"}://${req.headers.host ?? "localhost"}`;
+
   // --- routes ------------------------------------------------------------------------------
+  route("GET", "/api/v1/openapi.json", (req, res) => json(res, 200, openapi(VERSION, baseUrl(req))), true);
+  route("GET", "/llms.txt", (req, res) => {
+    res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-cache" });
+    res.end(llmsTxt(baseUrl(req)));
+  }, true);
+
+  route("POST", "/mcp", async (req, res, _p, url) => {
+    const raw = await readBody(req, 1024 * 1024);
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
+      return;
+    }
+    await serveMcp(res, catalog, body, who(req, url));
+  });
+  route("GET", "/mcp", (_q, res) => {
+    res.writeHead(405, { allow: "POST" });
+    res.end();
+  });
+
+  route("GET", "/api/v1/search", (req, res, _p, url) => {
+    const q = url.searchParams.get("q") ?? "";
+    const type = url.searchParams.get("type") || undefined;
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+    json(res, 200, { results: catalog.search(q, type, limit, who(req, url)) });
+  });
   route("GET", "/api/v1/health", (req, res) => json(res, 200, { ok: true, works: library.works.size,
     open: !cfg.token || fromTrusted(req) }), true);
 
   route("POST", "/api/v1/login", async (req, res) => {
     const body = await readJson(req);
-    if (cfg.token && !sameToken(String(body.token ?? ""), cfg.token)) throw new HttpError(401, "wrong token");
-    json(res, 200, { ok: true }, cfg.token ? {
-      "set-cookie": `${COOKIE}=${encodeURIComponent(cfg.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
-    } : {});
+    const c = clientOf(req);
+    if (cfg.token && !sameToken(String(body.token ?? ""), cfg.token)) {
+      failed(req, "/api/v1/login");
+      throw new HttpError(401, "wrong token");
+    }
+    limiter.clear(c.ip);
+    if (!cfg.token) { json(res, 200, { ok: true }); return; }
+    const id = store.createSession(c.ip, String(req.headers["user-agent"] ?? ""));
+    json(res, 200, { ok: true }, {
+      "set-cookie": `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Store.SESSION_DAYS * 86400}${c.https ? "; Secure" : ""}`,
+    });
   }, true);
+
+  route("POST", "/api/v1/logout", (req, res) => {
+    const id = sessionId(req);
+    if (id) store.endSession(id);
+    json(res, 200, { ok: true }, { "set-cookie": `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` });
+  }, true);
+
+  route("GET", "/api/v1/sessions", (_q, res) => json(res, 200, { sessions: store.sessions() }));
+  route("DELETE", "/api/v1/sessions", (_q, res) => json(res, 200, { ended: store.endAllSessions() }));
 
   route("GET", "/api/v1/works", (req, res, _p, url) => {
     const profile = who(req, url);
@@ -251,9 +380,14 @@ export function createApp(cfg: Config): App {
     res.end(page.data);
   });
 
+  // Through the public proxy, video is off unless ARCHIVIST_PROXIED_VIDEO=on: a CDN's free plan is
+  // not a video host, and at home the LAN or Tailscale serve it better anyway.
+  const videoAllowed = (req: IncomingMessage) => cfg.proxiedVideo || !clientOf(req).proxied;
+
   route("GET", "/api/v1/units/:kind/:slug/:unit/video", async (req, res, p) => {
     const { unit } = find(p);
     if (unit.format !== "video") throw new HttpError(404, "not a video");
+    if (!videoAllowed(req)) throw new HttpError(403, "video is only served on the home network or Tailscale");
     const file = library.resolve(unit.path);
     const got = await playable(file, cache);
     if ("job" in got) {
@@ -263,20 +397,22 @@ export function createApp(cfg: Config): App {
     sendFile(req, res, got.path, "video/" + (extname(got.path).toLowerCase() === ".webm" ? "webm" : "mp4"));
   });
 
-  route("GET", "/api/v1/units/:kind/:slug/:unit/info", async (_q, res, p) => {
+  route("GET", "/api/v1/units/:kind/:slug/:unit/info", async (req, res, p) => {
     const { unit } = find(p);
     if (unit.format !== "video") throw new HttpError(404, "not a video");
     const file = library.resolve(unit.path);
     const pr = await probe(file);
     const got = await playable(file, cache);
     json(res, 200, { duration: pr.duration, video: pr.video, audio: pr.audio, ready: !("job" in got),
+      allowed: videoAllowed(req),
       job: "job" in got ? got.job : null, subtitles: (unit.subtitles ?? []).map((s, i) => ({
         index: i, label: s.split("/").at(-1), href: `/api/v1/units/${p.kind}/${p.slug}/${unit.key}/subtitles/${i}` })) });
   });
 
-  route("POST", "/api/v1/units/:kind/:slug/:unit/prepare", async (_q, res, p) => {
+  route("POST", "/api/v1/units/:kind/:slug/:unit/prepare", async (req, res, p) => {
     const { unit } = find(p);
     if (unit.format !== "video") throw new HttpError(404, "not a video");
+    if (!videoAllowed(req)) throw new HttpError(403, "video is only served on the home network or Tailscale");
     json(res, 202, await prepare(library.resolve(unit.path), cache));
   });
 
@@ -467,8 +603,15 @@ export function createApp(cfg: Config): App {
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://archivist");
+    const client = clientOf(req);
+    hardenHeaders(res, client.https);
     try {
-      const routed = url.pathname.startsWith("/api/") || url.pathname === "/opds" || url.pathname.startsWith("/opds/");
+      if (!fromTrusted(req) && limiter.blocked(client.ip)) {
+        res.setHeader("retry-after", "900");
+        throw new HttpError(429, "too many failed attempts; try again later");
+      }
+      const routed = url.pathname.startsWith("/api/") || url.pathname === "/opds" || url.pathname.startsWith("/opds/")
+        || url.pathname === "/mcp" || url.pathname === "/llms.txt";
       if (!routed) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
         serveWeb(req, res, url.pathname);
@@ -477,7 +620,9 @@ export function createApp(cfg: Config): App {
       const hit = match(req.method ?? "GET", url.pathname);
       if (!hit) throw new HttpError(404, "not found");
       if (!hit.open && !authed(req)) {
+        if (presentedCredentials(req)) failed(req, url.pathname);
         if (url.pathname.startsWith("/opds")) res.setHeader("www-authenticate", 'Basic realm="archivist", charset="UTF-8"');
+        if (url.pathname === "/mcp") res.setHeader("www-authenticate", 'Bearer realm="archivist"');
         throw new HttpError(401, "token required");
       }
       if (req.method !== "GET" && req.method !== "HEAD" && req.headers.origin && cfg.token && !fromTrusted(req)) {
