@@ -6,6 +6,8 @@
   there is more than one, a switcher in the header, and a page to add, rename or remove them.
   The API takes the profile from `X-Archivist-Profile` / `?profile=`, the browser cookie, or the
   OPDS user name. A 0.1/0.2 database is migrated: its progress becomes the owner's.
+- A catalog per profile, `/opds?profile=sol`, for readers on a trusted network (they send no
+  user name): the profile rides on every link of that catalog.
 
 ## 0.2.0 — 2026-10-03
 

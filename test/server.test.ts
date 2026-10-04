@@ -153,6 +153,11 @@ describe("server", () => {
     expect(hers).toMatchObject({ profile: "sol", all: [{ position: 1 }] });
     const basicSol = { authorization: `Basic ${Buffer.from(`sol:${TOKEN}`).toString("base64")}` };
     expect(await (await fetch(`${base}/opds/w/pages/berserk`, { headers: basicSol })).text()).toContain('pse:lastRead="0"');
+    const perProfile = await (await fetch(`${base}/opds/w/pages/berserk?profile=sol`, { headers: basicSol })).text();
+    expect(perProfile).toContain('/opds/pse/pages/berserk/v01/{pageNumber}?profile=sol');
+    expect(await (await fetch(`${base}/opds?profile=sol`, { headers: basicSol })).text()).toContain('href="/opds/all?profile=sol"');
+    await fetch(`${base}/opds/pse/pages/berserk/v01/2?profile=sol`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    expect((await (await api("/api/v1/progress?profile=sol")).json() as { all: { position: number }[] }).all[0]!.position).toBe(3);
     expect((await api("/api/v1/profiles/owner", { method: "DELETE" })).status).toBe(400);
     expect((await api("/api/v1/profiles/sol", { method: "DELETE" })).status).toBe(200);
   });

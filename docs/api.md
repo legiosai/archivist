@@ -39,8 +39,10 @@ Tools get pages and single frames. There is no endpoint that cuts a clip, on pur
 ## OPDS (readers on the phone)
 
 `/opds` is an OPDS 1.2 catalog of the manga and comics, for apps like Panels, Chunky, KOReader
-or Mihon. Readers log in with HTTP Basic: any user name, the token as the password (or nothing,
-from a trusted network).
+or Mihon. Readers log in with HTTP Basic: the profile as the user name, the token as the password
+(or nothing, from a trusted network). From a trusted network a reader sends no user name, so
+give each person their own catalog URL instead: `/opds?profile=sol` keeps `?profile=sol` on
+every link it hands out.
 
 | | |
 |---|---|

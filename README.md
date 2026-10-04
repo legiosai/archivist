@@ -99,7 +99,8 @@ progress, events and resumable uploads. Tools get pages and frames, never clips.
 ## On the phone
 
 `http://your-server:8780/opds` is an OPDS catalog: add it to Panels, Chunky, KOReader or Mihon.
-Volumes stream page by page, and reading there moves the same "continue" shelf.
+Volumes stream page by page, and reading there moves the same "continue" shelf. For someone
+else's profile, `…/opds?profile=sol`.
 
 ## Develop
 

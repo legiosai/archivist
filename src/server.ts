@@ -314,22 +314,30 @@ export function createApp(cfg: Config): App {
     res.writeHead(200, { "content-type": "application/atom+xml; charset=utf-8", "cache-control": "no-store" });
     res.end(xml);
   };
-  route("GET", "/opds", (_q, res) => atom(res, rootFeed(library)));
-  route("GET", "/opds/all", (req, res) => atom(res, worksFeed(library, store, "all", undefined, who(req))));
-  route("GET", "/opds/continue", (req, res) => atom(res, worksFeed(library, store, "continue", undefined, who(req))));
-  route("GET", "/opds/type/:type", (req, res, p) => atom(res, worksFeed(library, store, p.type!, undefined, who(req))));
-  route("GET", "/opds/w/:kind/:slug", async (req, res, p) => {
+  // A catalog per profile: /opds?profile=sol keeps "?profile=sol" on every link it hands out, so a
+  // reader on a trusted network (which sends no user name) still reads as Sol.
+  const opdsQ = (url: URL) => {
+    const p = url.searchParams.get("profile")?.trim().toLowerCase();
+    return p && store.hasProfile(p) ? `?profile=${encodeURIComponent(p)}` : "";
+  };
+  route("GET", "/opds", (_q, res, _p, url) => atom(res, rootFeed(library, undefined, opdsQ(url))));
+  route("GET", "/opds/all", (req, res, _p, url) => atom(res, worksFeed(library, store, "all", undefined, who(req, url), opdsQ(url))));
+  route("GET", "/opds/continue", (req, res, _p, url) =>
+    atom(res, worksFeed(library, store, "continue", undefined, who(req, url), opdsQ(url))));
+  route("GET", "/opds/type/:type", (req, res, p, url) =>
+    atom(res, worksFeed(library, store, p.type!, undefined, who(req, url), opdsQ(url))));
+  route("GET", "/opds/w/:kind/:slug", async (req, res, p, url) => {
     const w = library.get(`${p.kind}/${p.slug}`);
     if (!w) throw new HttpError(404, "unknown work");
     const counts = new Map<string, number>();
     for (const u of w.units) {
       try { counts.set(u.key, (await openPages(cfg.library, u, cache)).count); } catch { counts.set(u.key, 0); }
     }
-    atom(res, workFeed(w, store, counts, undefined, who(req)));
+    atom(res, workFeed(w, store, counts, undefined, who(req, url), opdsQ(url)));
   });
-  route("GET", "/opds/pse/:kind/:slug/:unit/:n", async (req, res, p) => {
+  route("GET", "/opds/pse/:kind/:slug/:unit/:n", async (req, res, p, url) => {
     const { work, unit } = find(p);
-    const profile = who(req);
+    const profile = who(req, url);
     const pages = await openPages(cfg.library, unit, cache);
     const n = Number(p.n) + 1;                        // PSE counts from 0
     if (!Number.isInteger(n) || n < 1 || n > pages.count) throw new HttpError(404, "no such page");

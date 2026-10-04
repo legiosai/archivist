@@ -92,7 +92,7 @@ herramientas reciben páginas y fotogramas, nunca clips.
 
 `http://tu-servidor:8780/opds` es un catálogo OPDS: agregalo en Panels, Chunky,
 KOReader o Mihon. Los tomos se leen página por página, y lo que leés ahí mueve el
-mismo estante de «seguir».
+mismo estante de «seguir». Para el perfil de otra persona, `…/opds?profile=sol`.
 
 ## Desarrollo
 
