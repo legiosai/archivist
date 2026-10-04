@@ -17,7 +17,14 @@ export interface Probe {
   video: string | null;
   audio: string | null;
   duration: number;
+  /** PQ or HLG (a UHD Blu-ray transfer): frames and conversions are tone-mapped to SDR. */
+  hdr?: boolean;
 }
+
+const HDR_TRANSFERS = new Set(["smpte2084", "arib-std-b67"]);
+/** HDR to SDR BT.709. Read as is, an HDR picture comes out grey and washed out; mobius keeps the brightness. */
+export const TONEMAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,"
+  + "zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
 const DIRECT_EXT = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 const DIRECT_VIDEO = new Set(["h264", "vp8", "vp9", "av1"]);
@@ -30,13 +37,16 @@ export async function probe(file: string): Promise<Probe> {
   const mtime = statSync(file).mtimeMs;
   const hit = probes.get(file);
   if (hit && hit.mtime === mtime) return hit.probe;
-  const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,codec_name:format=format_name,duration",
-    "-of", "json", file]);
-  const data = JSON.parse(stdout) as { streams?: { codec_type: string; codec_name: string }[]; format?: { format_name?: string; duration?: string } };
+  const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries",
+    "stream=codec_type,codec_name,color_transfer:format=format_name,duration", "-of", "json", file]);
+  const data = JSON.parse(stdout) as { streams?: { codec_type: string; codec_name: string; color_transfer?: string }[];
+    format?: { format_name?: string; duration?: string } };
   const streams = data.streams ?? [];
+  const video = streams.find((s) => s.codec_type === "video");
   const p: Probe = {
     container: data.format?.format_name ?? "",
-    video: streams.find((s) => s.codec_type === "video")?.codec_name ?? null,
+    video: video?.codec_name ?? null,
+    hdr: HDR_TRANSFERS.has(video?.color_transfer ?? ""),
     audio: streams.find((s) => s.codec_type === "audio")?.codec_name ?? null,
     duration: Number(data.format?.duration ?? 0),
   };
@@ -52,7 +62,8 @@ export function playsDirectly(file: string, p: Probe): boolean {
 /** The ffmpeg arguments that turn the file into a browser-friendly MP4. */
 export function prepareArgs(file: string, p: Probe, out: string, nvenc: boolean): string[] {
   const args = ["-hide_banner", "-nostdin", "-y", "-i", file, "-map", "0:v:0", "-map", "0:a:0?", "-sn"];
-  if (p.video === "h264") args.push("-c:v", "copy");
+  if (p.hdr) args.push("-vf", TONEMAP);
+  if (p.video === "h264" && !p.hdr) args.push("-c:v", "copy");
   else if (nvenc) args.push("-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23", "-pix_fmt", "yuv420p");
   else args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p");
   if (p.audio && COPY_AUDIO.has(p.audio)) args.push("-c:a", "copy");
@@ -153,7 +164,8 @@ const extracting = new Map<string, Promise<void>>();
 /** One frame at `seconds`, as JPEG, cached. Asking twice at once runs ffmpeg once. */
 export async function frame(file: string, seconds: number, cacheDir: string): Promise<Buffer> {
   const t = Math.max(0, Math.round(seconds * 10) / 10);
-  const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}:${t}`).digest("hex").slice(0, 20);
+  const hdr = (await probe(file)).hdr === true;
+  const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}:${t}${hdr ? ":sdr" : ""}`).digest("hex").slice(0, 20);
   const out = join(cacheDir, "frames", `${key}.jpg`);
   if (!existsSync(out)) {
     let job = extracting.get(out);
@@ -162,7 +174,7 @@ export async function frame(file: string, seconds: number, cacheDir: string): Pr
         mkdirSync(join(cacheDir, "frames"), { recursive: true });
         const tmp = `${out}.${process.pid}.${randomBytes(4).toString("hex")}.jpg`;
         await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", String(t), "-i", file,
-          "-frames:v", "1", "-q:v", "3", "-vf", "scale='min(1920,iw)':-2", tmp], { timeout: 60_000 });
+          "-frames:v", "1", "-q:v", "3", "-vf", `${hdr ? `${TONEMAP},` : ""}scale='min(1920,iw)':-2`, tmp], { timeout: 60_000 });
         renameSync(tmp, out);
       })().finally(() => extracting.delete(out));
       extracting.set(out, job);

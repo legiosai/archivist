@@ -56,6 +56,11 @@ describe("video", () => {
     expect(hevc.join(" ")).toContain("h264_nvenc");
     expect(hevc.join(" ")).toContain("-c:a aac");
     const cpu = prepareArgs("a.mkv", { container: "matroska", video: "hevc", audio: "aac", duration: 1 }, "o.mp4", false);
+    const hdr = prepareArgs("a.mkv", { container: "matroska", video: "hevc", audio: "eac3", duration: 1, hdr: true }, "o.mp4", true);
+    expect(hdr.join(" ")).toContain("tonemap=tonemap=mobius");
+    expect(hdr).toContain("h264_nvenc");
+    const hdr264 = prepareArgs("a.mkv", { container: "matroska", video: "h264", audio: "aac", duration: 1, hdr: true }, "o.mp4", false);
+    expect(hdr264.join(" ")).not.toContain("-c:v copy");          // an HDR H.264 is converted, not copied
     expect(cpu.join(" ")).toContain("libx264");
   });
 
