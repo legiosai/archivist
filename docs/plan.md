@@ -113,3 +113,12 @@ páginas y los fotogramas por la API cuando no comparta disco con archivist.
 
 Sigue: varios usuarios (cada uno con su progreso), mover la biblioteca a `/srv` en valensrv
 (pide sudo una vez), y la API de páginas para Showrunner cuando no compartan disco.
+
+## Estado (2026-10-03, 0.3.0)
+
+- **Perfiles**: cada persona de la casa tiene su propio lugar en cada obra; «¿Quién lee?»
+  cuando hay más de uno; en OPDS, el usuario elige el perfil. La base de la 0.2 se migró: su
+  progreso pasó al dueño (copia previa en `~/backups/archivist/archivist-pre-0.3.0.db`).
+
+Sigue: mover la biblioteca a `/srv` en valensrv (un comando con sudo), y la API de páginas
+para Showrunner cuando no compartan disco.
