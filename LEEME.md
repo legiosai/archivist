@@ -37,8 +37,11 @@ Una biblioteca auto-alojada de lo que ya tenés en disco:
   Recuerda el episodio y el minuto.
 - **Una sola biblioteca**: la misma historia en manga y en anime es una obra,
   con un solo lugar para seguir.
+- **Perfiles** para cada persona de la casa, elegidos al entrar como en un
+  servicio de streaming: cada uno con su avatar, su «seguir» y su catálogo para
+  el celular.
 - **Una API** con token, para que una herramienta liste obras, pida una página
-  o un fotograma y sepa dónde quedaste.
+  o un fotograma y sepa dónde quedaste. Y un servidor MCP para agentes.
 
 <img src="docs/img/reader.jpg" alt="El lector, dos páginas de derecha a izquierda" width="640">
 

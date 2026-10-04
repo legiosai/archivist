@@ -81,9 +81,9 @@ user name (so an OPDS reader logged in as `sol` reads as Sol), else the owner.
 
 | | |
 |---|---|
-| `GET /api/v1/profiles` | `{profiles, current}` |
-| `POST /api/v1/profiles` | `{name}` → a new profile. |
-| `PATCH /api/v1/profiles/:id` | `{name}` → renamed. |
+| `GET /api/v1/profiles` | `{profiles, current}`; each profile has `hue`, `glyph` and `stats: {inProgress, finishedUnits, lastAt}`. |
+| `POST /api/v1/profiles` | `{name, hue?, glyph?}` → a new profile. |
+| `PATCH /api/v1/profiles/:id` | Any of `{name, hue, glyph}`; what is left out stays. `hue` is 0–359 (the avatar's color), `glyph` one emoji or `null` for the initial. |
 | `DELETE /api/v1/profiles/:id` | Removed with its progress (never the owner's). |
 | `POST /api/v1/profiles/:id/use` | Sets the browser's profile cookie. |
 

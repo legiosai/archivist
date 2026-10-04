@@ -216,6 +216,23 @@ describe("server", () => {
     expect((await api("/api/v1/profiles/sol", { method: "DELETE" })).status).toBe(200);
   });
 
+  it("lets each profile pick an avatar, and counts what it has read", async () => {
+    const { api } = await start(LIB);
+    const sol = await (await api("/api/v1/profiles", { method: "POST", body: JSON.stringify({ name: "Sol", hue: 200, glyph: "🦊" }) })).json();
+    expect(sol).toMatchObject({ id: "sol", hue: 200, glyph: "🦊" });
+    expect((await api("/api/v1/profiles/sol", { method: "PATCH", body: JSON.stringify({ glyph: "🐉" }) })).status).toBe(200);
+    for (const bad of [{ hue: 400 }, { hue: 1.5 }, { glyph: "ab" }, { glyph: "<b>" }, { glyph: "🦊🐉" }]) {
+      expect((await api("/api/v1/profiles/sol", { method: "PATCH", body: JSON.stringify(bad) })).status).toBe(400);
+    }
+    await api("/api/v1/progress/pages/berserk/v01", { method: "PUT", headers: { "x-archivist-profile": "sol" }, body: JSON.stringify({ position: 1, total: 3 }) });
+    const { profiles } = await (await api("/api/v1/profiles")).json();
+    const got = profiles.find((p: { id: string }) => p.id === "sol");
+    expect(got).toMatchObject({ name: "Sol", hue: 200, glyph: "🐉", stats: { inProgress: 1, finishedUnits: 0 } });
+    expect(got.stats.lastAt).toBeTruthy();
+    expect(profiles.find((p: { id: string }) => p.id === "owner").stats).toEqual({ inProgress: 0, finishedUnits: 0, lastAt: null });
+    expect((await api("/api/v1/profiles/sol", { method: "PATCH", body: JSON.stringify({ hue: null, glyph: null }) })).status).toBe(200);
+  });
+
   it("serves a placeholder when the UI is not built", async () => {
     const { base } = await start(LIB);
     expect(await (await fetch(`${base}/`)).text()).toContain("UI is not built");

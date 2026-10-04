@@ -14,6 +14,39 @@ export interface Profile {
   id: string;
   name: string;
   createdAt: string;
+  /** The avatar: a hue (0–359) for its colors and one emoji; null = picked from the id / the initial. */
+  hue: number | null;
+  glyph: string | null;
+}
+
+export interface Look {
+  hue?: number | null;
+  glyph?: string | null;
+}
+
+export interface ProfileStats {
+  /** Works with something started and not finished. */
+  inProgress: number;
+  finishedUnits: number;
+  lastAt: string | null;
+}
+
+/** A hue and one emoji (a single grapheme, no spaces or markup), or an error. */
+export function cleanLook(look: Look): Look {
+  const out: Look = {};
+  if (look.hue !== undefined) {
+    if (look.hue === null) out.hue = null;
+    else if (!Number.isInteger(look.hue) || look.hue < 0 || look.hue > 359) throw new Error("hue must be a whole number from 0 to 359");
+    else out.hue = look.hue;
+  }
+  if (look.glyph !== undefined) {
+    const g = typeof look.glyph === "string" ? look.glyph.trim() : "";
+    const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(g)];
+    if (!g) out.glyph = null;
+    else if (graphemes.length !== 1 || g.length > 16 || /[\s<>&"'\p{Cc}]/u.test(g)) throw new Error("glyph must be a single emoji or letter");
+    else out.glyph = g;
+  }
+  return out;
 }
 
 export interface Progress {
@@ -90,31 +123,54 @@ export class Store {
         FROM progress_v1; DROP TABLE progress_v1;`);
     }
     if (!cols("events").includes("profile")) this.db.exec(`ALTER TABLE events ADD COLUMN profile TEXT;`);
+    // 0.5: each profile picks its avatar.
+    if (!cols("profiles").includes("hue")) this.db.exec(`ALTER TABLE profiles ADD COLUMN hue INTEGER; ALTER TABLE profiles ADD COLUMN glyph TEXT;`);
   }
 
   // --- profiles ------------------------------------------------------------------------------
   profiles(): Profile[] {
     return (this.db.prepare("SELECT * FROM profiles ORDER BY created_at").all() as Row[])
-      .map((r) => ({ id: String(r.id), name: String(r.name), createdAt: String(r.created_at) }));
+      .map((r) => ({ id: String(r.id), name: String(r.name), createdAt: String(r.created_at),
+        hue: r.hue === null || r.hue === undefined ? null : Number(r.hue), glyph: r.glyph ? String(r.glyph) : null }));
+  }
+
+  /** Per profile: works under way, units finished, and when it last read or watched. */
+  profileStats(): Record<string, ProfileStats> {
+    const rows = this.db.prepare(`SELECT profile, SUM(finished) AS done, MAX(updated_at) AS last,
+      COUNT(DISTINCT CASE WHEN finished = 0 THEN work_id END) AS open FROM progress GROUP BY profile`).all() as Row[];
+    const out: Record<string, ProfileStats> = {};
+    for (const p of this.profiles()) out[p.id] = { inProgress: 0, finishedUnits: 0, lastAt: null };
+    for (const r of rows) {
+      if (!out[String(r.profile)]) continue;
+      out[String(r.profile)] = { inProgress: Number(r.open ?? 0), finishedUnits: Number(r.done ?? 0), lastAt: r.last ? String(r.last) : null };
+    }
+    return out;
   }
 
   hasProfile(id: string): boolean {
     return !!this.db.prepare("SELECT 1 FROM profiles WHERE id = ?").get(id);
   }
 
-  addProfile(name: string): Profile {
+  addProfile(name: string, look: Look = {}): Profile {
     const clean = name.trim().slice(0, 40);
     const id = profileId(clean);
     if (!clean || !id) throw new Error("a profile needs a name");
     if (this.hasProfile(id)) throw new Error(`there is already a profile called ${clean}`);
+    const { hue = null, glyph = null } = cleanLook(look);
     const at = new Date().toISOString();
-    this.db.prepare("INSERT INTO profiles (id, name, created_at) VALUES (?, ?, ?)").run(id, clean, at);
-    return { id, name: clean, createdAt: at };
+    this.db.prepare("INSERT INTO profiles (id, name, created_at, hue, glyph) VALUES (?, ?, ?, ?, ?)").run(id, clean, at, hue, glyph);
+    return { id, name: clean, createdAt: at, hue, glyph };
   }
 
-  renameProfile(id: string, name: string): void {
-    if (!name.trim()) throw new Error("a profile needs a name");
-    this.db.prepare("UPDATE profiles SET name = ? WHERE id = ?").run(name.trim().slice(0, 40), id);
+  /** Rename and/or restyle; fields left out stay as they are. The id never changes. */
+  updateProfile(id: string, change: { name?: string } & Look): void {
+    if (change.name !== undefined) {
+      if (!change.name.trim()) throw new Error("a profile needs a name");
+      this.db.prepare("UPDATE profiles SET name = ? WHERE id = ?").run(change.name.trim().slice(0, 40), id);
+    }
+    const look = cleanLook(change);
+    if (look.hue !== undefined) this.db.prepare("UPDATE profiles SET hue = ? WHERE id = ?").run(look.hue, id);
+    if (look.glyph !== undefined) this.db.prepare("UPDATE profiles SET glyph = ? WHERE id = ?").run(look.glyph, id);
   }
 
   /** Removes a profile and its progress. The owner's cannot be removed. */

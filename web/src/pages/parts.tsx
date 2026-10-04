@@ -1,32 +1,70 @@
-import { useEffect, useState } from "react";
-import { getProfiles, type Profile } from "../api.ts";
+import { useEffect, useRef, useState } from "react";
+import { logout } from "../api.ts";
 import { Icon, Mark } from "../icons.tsx";
+import { Avatar, useProfiles } from "../profiles.tsx";
 
-/** A stable hue per profile, so each person has their own color. */
-export function hue(id: string): number {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return id === "owner" ? 38 : h;
+/** Opens the search palette from anywhere (Header button, Ctrl+K). */
+export const openSearch = () => window.dispatchEvent(new Event("archivist:search"));
+
+function ProfileMenu() {
+  const { profiles, me, current, open, choose } = useProfiles();
+  const [shown, setShown] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!shown) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setShown(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setShown(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [shown]);
+  return (
+    <div className="menu-wrap" ref={box}>
+      <button className={`who ${shown ? "on" : ""}`} onClick={() => setShown(!shown)} aria-haspopup="menu" aria-expanded={shown}
+              title="Cambiar de perfil">
+        <Avatar profile={me} size="sm" />
+        <span className="label">{me?.name ?? "Perfil"}</span>
+        <Icon name="chevron" className="icon chev" />
+      </button>
+      {shown && (
+        <div className="menu" role="menu">
+          <div className="menu-head">Perfiles</div>
+          {profiles.map((p) => (
+            <button key={p.id} role="menuitem" className={`menu-item ${p.id === current ? "on" : ""}`}
+                    onClick={() => (p.id === current ? setShown(false) : void choose(p.id))}>
+              <Avatar profile={p} size="sm" />
+              <span>{p.name}</span>
+              {p.id === current && <Icon name="check" className="icon tick" />}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <a role="menuitem" className="menu-item" href="#/perfiles" onClick={() => setShown(false)}>
+            <Icon name="users" /><span>Administrar perfiles</span>
+          </a>
+          {!open && (
+            <button role="menuitem" className="menu-item" onClick={async () => { await logout(); window.location.reload(); }}>
+              <Icon name="logout" /><span>Cerrar sesión</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Header({ active }: { active?: "library" | "upload" | "profiles" }) {
-  const [me, setMe] = useState<Profile | null>(null);
-  useEffect(() => {
-    getProfiles().then((r) => setMe(r.profiles.find((p) => p.id === r.current) ?? null)).catch(() => undefined);
-  }, []);
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   return (
     <div className="top-wrap">
       <header className="top">
         <a className="brand" href="#/"><Mark />archivist</a>
         <nav>
+          <button className="search-btn" onClick={openSearch} title="Buscar">
+            <Icon name="search" /><span className="label">Buscar</span><kbd className="label">{mac ? "⌘" : "Ctrl"} K</kbd>
+          </button>
           <a href="#/" className={active === "library" ? "on" : ""}><Icon name="library" /><span className="label">Biblioteca</span></a>
           <a href="#/subir" className={active === "upload" ? "on" : ""}><Icon name="upload" /><span className="label">Subir</span></a>
-          <a className={`who ${active === "profiles" ? "on" : ""}`} href="#/perfiles" title="Perfiles">
-            <span className="avatar-sm" style={{ "--h": hue(me?.id ?? "owner") } as React.CSSProperties}>
-              {(me?.name ?? "·").slice(0, 1).toUpperCase()}
-            </span>
-            <span className="label">{me ? me.name : "Perfil"}</span>
-          </a>
+          <ProfileMenu />
         </nav>
       </header>
     </div>

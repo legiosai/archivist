@@ -107,6 +107,9 @@ export interface Profile {
   id: string;
   name: string;
   createdAt: string;
+  hue: number | null;
+  glyph: string | null;
+  stats?: { inProgress: number; finishedUnits: number; lastAt: string | null };
 }
 
 export async function getProfiles(): Promise<{ profiles: Profile[]; current: string }> {

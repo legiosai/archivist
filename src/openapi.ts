@@ -17,6 +17,8 @@ const query = (name: string, description: string, schema: Json = { type: "string
 
 const WORK = [path("kind", "`pages`, `video` or `stills`."), path("slug", "The work's folder name.")];
 const UNIT = [...WORK, path("unit", "A unit key: `v01`, `s01e02`, `film`.")];
+const LOOK = { name: { type: "string" }, hue: { type: ["integer", "null"], minimum: 0, maximum: 359, description: "The avatar's color." },
+  glyph: { type: ["string", "null"], description: "One emoji for the avatar; null for the initial." } };
 const PROFILE = query("profile", "Whose progress (a profile id); also the `X-Archivist-Profile` header. Default: the owner.");
 
 function op(tag: string, summary: string, extra: Json = {}, responses: Json = { 200: ok("OK") }): Json {
@@ -94,13 +96,13 @@ export function openapi(version: string, server?: string): Json {
       "/api/v1/events": { get: op("progress", "Events after an id: finished, work_added, work_removed", {
         parameters: [query("since", "Only events with a larger id.", { type: "integer", minimum: 0 })] }) },
       "/api/v1/profiles": {
-        get: op("profiles", "Profiles, and the one this request reads as"),
-        post: op("profiles", "Add a profile", { requestBody: jsonBody({ type: "object", required: ["name"], properties: { name: { type: "string" } } }) },
+        get: op("profiles", "Profiles with their avatar and stats (inProgress, finishedUnits, lastAt), and the one this request reads as"),
+        post: op("profiles", "Add a profile", { requestBody: jsonBody({ type: "object", required: ["name"], properties: LOOK }) },
           { 201: ok("Created") }),
       },
       "/api/v1/profiles/{id}": {
-        patch: op("profiles", "Rename", { parameters: [path("id", "Profile id.")],
-          requestBody: jsonBody({ type: "object", required: ["name"], properties: { name: { type: "string" } } }) }),
+        patch: op("profiles", "Rename or restyle; fields left out stay", { parameters: [path("id", "Profile id.")],
+          requestBody: jsonBody({ type: "object", properties: LOOK }) }),
         delete: op("profiles", "Remove a profile and its progress (never the owner's)", { parameters: [path("id", "Profile id.")] }),
       },
       "/api/v1/profiles/{id}/use": { post: op("profiles", "Make it the browser's profile", { parameters: [path("id", "Profile id.")] }) },

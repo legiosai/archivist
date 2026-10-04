@@ -37,8 +37,10 @@ A self-hosted library for what you already have on disk:
   episode and the second.
 - **One library**: the same story as a manga and as an anime is one work, with
   one place to continue.
+- **Profiles** for everyone in the house, picked at the door like on a streaming
+  service: each with its own avatar, its own "continue" and its own phone catalog.
 - **An API** with a token, so a tool can list works, ask for a page or a frame,
-  and read where you are.
+  and read where you are. An MCP server for agents, too.
 
 <img src="docs/img/reader.jpg" alt="The reader, two pages right to left" width="640">
 

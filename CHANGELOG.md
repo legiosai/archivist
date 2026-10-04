@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 — 2026-10-04
+
+- Profiles up front: a browser that hasn't chosen one opens on "¿Quién está mirando?", and it
+  remembers the link it was opened with. A profile menu in the header switches in one click.
+- Avatars: each profile picks a color and an emoji (or keeps its initial). `hue` and `glyph` on
+  `POST`/`PATCH /api/v1/profiles`; `GET` adds each profile's stats (works under way, units
+  finished, last activity). Databases from 0.4 are migrated.
+- Perfiles page: a card per person with their stats, an editor with a live preview, and a
+  button that copies their OPDS catalog for the phone.
+- Search from anywhere: Ctrl+K / ⌘K or the header button, with what you were reading when
+  empty.
+- Library: filter by state (en curso, sin empezar, terminadas), sort by recent, title or year,
+  a greeting with the profile's name, and "Sorprendeme" for a profile that hasn't started.
+
 ## 0.4.0 — 2026-10-04
 
 - For agents: an MCP server at `/mcp` (Streamable HTTP, stateless, the same token) with nine

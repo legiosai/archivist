@@ -1,6 +1,9 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { AuthError, getProfiles, hasProfileCookie } from "./api.ts";
+import { AuthError, hasProfileCookie } from "./api.ts";
+import { ProfilesProvider, useProfiles } from "./profiles.tsx";
+import { Palette } from "./pages/Palette.tsx";
+import { Picker } from "./pages/Picker.tsx";
 import { Library } from "./pages/Library.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Player } from "./pages/Player.tsx";
@@ -24,25 +27,14 @@ function useHash(): string[] {
   return parts;
 }
 
-function App() {
-  const [needLogin, setNeedLogin] = useState(false);
-  const [pick, setPick] = useState(false);
+function App({ onAuth }: { onAuth: () => void }) {
+  const { ready } = useProfiles();
   const parts = useHash();
-  useEffect(() => {
-    // With more than one profile and none chosen in this browser, ask who reads.
-    if (hasProfileCookie()) return;
-    getProfiles().then((r) => setPick(r.profiles.length > 1)).catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    const on = (e: PromiseRejectionEvent) => { if (e.reason instanceof AuthError) setNeedLogin(true); };
-    window.addEventListener("unhandledrejection", on);
-    return () => window.removeEventListener("unhandledrejection", on);
-  }, []);
-  if (needLogin) return <Login />;
-  if (pick) return <Profiles onAuth={() => setNeedLogin(true)} picker />;
   const [view, kind, slug, unit] = parts;
+  if (!ready) return <div className="reader-loading"><div className="spinner" aria-label="Cargando" /></div>;
+  // A browser that hasn't said who it is asks first, as streaming services do.
+  if (!hasProfileCookie() && view !== "perfiles") return <Picker />;
   const id = kind && slug ? `${kind}/${slug}` : "";
-  const onAuth = () => setNeedLogin(true);
   if (view === "w" && id) return <WorkPage id={id} onAuth={onAuth} />;
   if (view === "r" && id && unit) return <Reader id={id} unitKey={unit} onAuth={onAuth} />;
   if (view === "v" && id && unit) return <Player id={id} unitKey={unit} onAuth={onAuth} />;
@@ -51,4 +43,21 @@ function App() {
   return <Library onAuth={onAuth} />;
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+function Root() {
+  const [needLogin, setNeedLogin] = useState(false);
+  const onAuth = useCallback(() => setNeedLogin(true), []);
+  useEffect(() => {
+    const on = (e: PromiseRejectionEvent) => { if (e.reason instanceof AuthError) setNeedLogin(true); };
+    window.addEventListener("unhandledrejection", on);
+    return () => window.removeEventListener("unhandledrejection", on);
+  }, []);
+  if (needLogin) return <Login />;
+  return (
+    <ProfilesProvider onAuth={onAuth}>
+      <App onAuth={onAuth} />
+      <Palette />
+    </ProfilesProvider>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<StrictMode><Root /></StrictMode>);

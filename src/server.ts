@@ -524,12 +524,21 @@ export function createApp(cfg: Config): App {
   route("POST", "/api/v1/rescan", (_q, res) => json(res, 200, library.rescan()));
 
   // --- profiles ----------------------------------------------------------------------------
-  route("GET", "/api/v1/profiles", (req, res, _p, url) => json(res, 200, { profiles: store.profiles(), current: who(req, url) }));
+  // The look fields as the body has them: absent stays absent, so PATCH changes only what it names.
+  const look = (b: Record<string, unknown>) => ({
+    ...("hue" in b ? { hue: b.hue === null ? null : Number(b.hue) } : {}),
+    ...("glyph" in b ? { glyph: b.glyph === null ? null : String(b.glyph) } : {}),
+  });
+
+  route("GET", "/api/v1/profiles", (req, res, _p, url) => {
+    const stats = store.profileStats();
+    json(res, 200, { profiles: store.profiles().map((p) => ({ ...p, stats: stats[p.id] })), current: who(req, url) });
+  });
 
   route("POST", "/api/v1/profiles", async (req, res) => {
     const b = await readJson(req);
     try {
-      json(res, 201, store.addProfile(String(b.name ?? "")));
+      json(res, 201, store.addProfile(String(b.name ?? ""), look(b)));
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }
@@ -538,7 +547,11 @@ export function createApp(cfg: Config): App {
   route("PATCH", "/api/v1/profiles/:id", async (req, res, p) => {
     if (!store.hasProfile(p.id!)) throw new HttpError(404, "unknown profile");
     const b = await readJson(req);
-    try { store.renameProfile(p.id!, String(b.name ?? "")); } catch (err) { throw new HttpError(400, (err as Error).message); }
+    try {
+      store.updateProfile(p.id!, { ...("name" in b ? { name: String(b.name ?? "") } : {}), ...look(b) });
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
     json(res, 200, { profiles: store.profiles() });
   });
 

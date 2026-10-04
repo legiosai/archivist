@@ -1,11 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AuthError, TYPE_LABEL, api, clock, type Progress, type WorkSummary, type WorkType } from "../api.ts";
 import { Icon } from "../icons.tsx";
+import { useProfiles } from "../profiles.tsx";
 import { Header, Img, SkeletonGrid, thumb } from "./parts.tsx";
 
 interface Latest extends Progress { work: WorkSummary }
 
 const TABS: (WorkType | "all")[] = ["all", "film", "series", "anime", "manga", "comic"];
+type Status = "all" | "reading" | "unstarted" | "finished";
+type Sort = "recent" | "title" | "year";
+const STATUS: [Status, string][] = [["all", "Todo"], ["reading", "En curso"], ["unstarted", "Sin empezar"], ["finished", "Terminadas"]];
+
+function statusOf(w: WorkSummary): Status {
+  if (w.units && w.finished === w.units) return "finished";
+  return w.last || w.finished ? "reading" : "unstarted";
+}
+
+function remembered<T extends string>(key: string, fallback: T): T {
+  try { return (localStorage.getItem(key) as T) || fallback; } catch { return fallback; }
+}
 
 const norm = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -25,9 +38,10 @@ const pct = (l: Progress) => Math.min(100, (l.position / Math.max(1, l.total)) *
 export function Library({ onAuth }: { onAuth: () => void }) {
   const [works, setWorks] = useState<WorkSummary[] | null>(null);
   const [latest, setLatest] = useState<Latest[]>([]);
-  const [tab, setTab] = useState<WorkType | "all">(() => {
-    try { return (localStorage.getItem("tab") as WorkType | "all") || "all"; } catch { return "all"; }
-  });
+  const { me } = useProfiles();
+  const [tab, setTab] = useState<WorkType | "all">(() => remembered("tab", "all"));
+  const [status, setStatus] = useState<Status>(() => remembered("status", "all"));
+  const [sort, setSort] = useState<Sort>(() => remembered("sort", "recent"));
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -38,7 +52,9 @@ export function Library({ onAuth }: { onAuth: () => void }) {
       .catch((e) => (e instanceof AuthError ? onAuth() : setError(String(e.message))));
   }, [onAuth]);
 
-  useEffect(() => { try { localStorage.setItem("tab", tab); } catch { /* private mode */ } }, [tab]);
+  useEffect(() => {
+    try { localStorage.setItem("tab", tab); localStorage.setItem("status", status); localStorage.setItem("sort", sort); } catch { /* private mode */ }
+  }, [tab, status, sort]);
 
   // "/" jumps to the search box, as on most sites.
   useEffect(() => {
@@ -54,8 +70,19 @@ export function Library({ onAuth }: { onAuth: () => void }) {
     for (const w of works ?? []) c[w.type] = (c[w.type] ?? 0) + 1;
     return c;
   }, [works]);
-  const shown = useMemo(() => (works ?? []).filter((w) => (tab === "all" || w.type === tab)
-    && (!q || norm(`${w.title} ${w.originalTitle ?? ""} ${w.year ?? ""}`).includes(norm(q)))), [works, tab, q]);
+  const shown = useMemo(() => {
+    const list = (works ?? []).filter((w) => (tab === "all" || w.type === tab) && (status === "all" || statusOf(w) === status)
+      && (!q || norm(`${w.title} ${w.originalTitle ?? ""} ${w.year ?? ""}`).includes(norm(q))));
+    const byTitle = (a: WorkSummary, b: WorkSummary) => a.title.localeCompare(b.title, "es");
+    if (sort === "title") return list.sort(byTitle);
+    if (sort === "year") return list.sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || byTitle(a, b));
+    return list.sort((a, b) => (b.last?.updatedAt ?? "").localeCompare(a.last?.updatedAt ?? "") || byTitle(a, b));
+  }, [works, tab, status, sort, q]);
+  const surprise = () => {
+    const pool = (works ?? []).filter((w) => statusOf(w) !== "finished" && w.units > 0);
+    const w = pool[Math.floor(Math.random() * pool.length)];
+    if (w) window.location.hash = `#/w/${w.id}`;
+  };
   const keepGoing = latest.filter((l) => !(l.finished && l.work.finished >= l.work.units)).slice(0, 12);
   const hero = keepGoing[0];
   const finishedUnits = (works ?? []).reduce((n, w) => n + w.finished, 0);
@@ -71,7 +98,7 @@ export function Library({ onAuth }: { onAuth: () => void }) {
             <div className="hero-body">
               {hero.work.cover && <Img className="hero-poster" src={thumb(hero.work.cover, 480)} />}
               <div className="hero-text">
-                <span className="eyebrow">Seguir {hero.work.kind === "video" ? "viendo" : "leyendo"} · {TYPE_LABEL[hero.work.type]}</span>
+                <span className="eyebrow">Seguí {hero.work.kind === "video" ? "viendo" : "leyendo"}{me ? `, ${me.name}` : ""} · {TYPE_LABEL[hero.work.type]}</span>
                 <h1>{hero.work.title}</h1>
                 <p className="meta">{whereText(hero)}</p>
                 {!hero.finished && (
@@ -82,6 +109,20 @@ export function Library({ onAuth }: { onAuth: () => void }) {
                     <Icon name={hero.work.kind === "video" ? "play" : "book"} /> Seguir
                   </a>
                   <span className="faint small">{hero.work.finished} de {hero.work.units} {hero.work.kind === "video" ? "vistos" : "leídos"}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : works.length > 0 ? (
+          <section className="hero welcome">
+            <div className="hero-body">
+              <div className="hero-text">
+                <span className="eyebrow">{me ? `Hola, ${me.name}` : "Hola"}</span>
+                <h1>¿Qué {works.some((w) => w.kind === "pages") ? "leemos" : "vemos"} hoy?</h1>
+                <p className="meta">{works.length} {works.length === 1 ? "obra espera" : "obras esperan"}. Lo que empieces queda guardado en tu perfil.</p>
+                <div className="row">
+                  <button className="primary lg" onClick={surprise}><Icon name="play" /> Sorprendeme</button>
+                  <a className="btn lg" href="#/subir"><Icon name="upload" /> Subir más</a>
                 </div>
               </div>
             </div>
@@ -136,6 +177,21 @@ export function Library({ onAuth }: { onAuth: () => void }) {
                 </button>
               ))}
             </div>
+            <div className="row filters">
+              <div className="chips-filter" role="radiogroup" aria-label="Estado">
+                {STATUS.map(([s, label]) => (
+                  <button key={s} role="radio" aria-checked={status === s} className={status === s ? "on" : ""} onClick={() => setStatus(s)}>{label}</button>
+                ))}
+              </div>
+              <label className="sortbox" title="Ordenar">
+                <Icon name="sort" />
+                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Ordenar">
+                  <option value="recent">Recientes</option>
+                  <option value="title">Título</option>
+                  <option value="year">Año</option>
+                </select>
+              </label>
+            </div>
             <label className="searchbox">
               <Icon name="search" />
               <input ref={search} type="search" placeholder="Buscar en la biblioteca" value={q} onChange={(e) => setQ(e.target.value)}
@@ -145,8 +201,10 @@ export function Library({ onAuth }: { onAuth: () => void }) {
           </div>
           {works === null ? <SkeletonGrid /> : shown.length === 0 ? (
             <div className="empty">
-              <p className="display">{q ? "Nada con ese nombre" : "Nada acá todavía"}</p>
-              <p>{q ? "Probá con otra palabra, o el título original." : <a href="#/subir">Subir una obra</a>}</p>
+              <p className="display">{q ? "Nada con ese nombre" : works.length ? "Nada con estos filtros" : "Nada acá todavía"}</p>
+              <p>{q ? "Probá con otra palabra, o el título original."
+                : works.length ? <button className="link" onClick={() => { setTab("all"); setStatus("all"); }}>Ver todo</button>
+                : <a href="#/subir">Subir una obra</a>}</p>
             </div>
           ) : (
             <div className="grid">
