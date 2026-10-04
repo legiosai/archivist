@@ -49,6 +49,21 @@ from a trusted network).
 | `GET /opds/w/:kind/:slug` | Its volumes: the file to download, and a Page Streaming Extension (PSE) link with the page count and the page you're on. |
 | `GET /opds/pse/:kind/:slug/:unit/:n` | Page `n`, counted from 0 as PSE does. Fetching it saves your position, so the phone and the browser share one "continue".|
 
+## Profiles
+
+Each profile keeps its own place in every work. The first one is the owner's (named by
+`ARCHIVIST_OWNER_NAME`, "Yo" by default). A request reads and writes the profile given by the
+`X-Archivist-Profile` header or `?profile=`, else the browser's profile cookie, else the Basic auth
+user name (so an OPDS reader logged in as `sol` reads as Sol), else the owner.
+
+| | |
+|---|---|
+| `GET /api/v1/profiles` | `{profiles, current}` |
+| `POST /api/v1/profiles` | `{name}` → a new profile. |
+| `PATCH /api/v1/profiles/:id` | `{name}` → renamed. |
+| `DELETE /api/v1/profiles/:id` | Removed with its progress (never the owner's). |
+| `POST /api/v1/profiles/:id/use` | Sets the browser's profile cookie. |
+
 ## Progress
 
 | | |

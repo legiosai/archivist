@@ -96,3 +96,29 @@ describe("backup", () => {
     expect(copy.all()[0]).toMatchObject({ workId: "pages/a", position: 3 });
   });
 });
+
+describe("profiles", () => {
+  it("keeps each profile's progress apart and migrates a 0.1 database to the owner", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { mkdtempSync } = await import("node:fs");
+    const path = join(mkdtempSync(join(tmpdir(), "prof-")), "old.db");
+    const old = new DatabaseSync(path);
+    old.exec(`CREATE TABLE progress (work_id TEXT, unit_key TEXT, position REAL, total REAL, finished INTEGER, updated_at TEXT,
+      PRIMARY KEY (work_id, unit_key));
+      CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, type TEXT, work_id TEXT, unit_key TEXT);
+      INSERT INTO progress VALUES ('pages/berserk', 'v01', 40, 200, 0, '2026-10-03T10:00:00Z');`);
+    old.close();
+    const store = new Store(path, "Valen");
+    expect(store.all()).toMatchObject([{ profile: "owner", workId: "pages/berserk", position: 40 }]);
+    expect(store.profiles().map((p) => p.name)).toEqual(["Valen"]);
+    const sol = store.addProfile("Sol");
+    expect(sol.id).toBe("sol");
+    expect(() => store.addProfile("sol")).toThrow(/already/);
+    store.save("pages/berserk", "v01", 5, 200, "pages", new Date(), "sol");
+    expect(store.forWork("pages/berserk")[0]!.position).toBe(40);
+    expect(store.forWork("pages/berserk", "sol")[0]!.position).toBe(5);
+    expect(() => store.removeProfile("owner")).toThrow();
+    store.removeProfile("sol");
+    expect(store.all("sol")).toEqual([]);
+  });
+});

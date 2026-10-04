@@ -99,3 +99,19 @@ export function useQuery(name: string): string | null {
   const q = window.location.hash.split("?")[1] ?? "";
   return new URLSearchParams(q).get(name);
 }
+
+export interface Profile {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export async function getProfiles(): Promise<{ profiles: Profile[]; current: string }> {
+  return api<{ profiles: Profile[]; current: string }>("/api/v1/profiles");
+}
+
+export async function useProfile(id: string): Promise<void> {
+  await api(`/api/v1/profiles/${encodeURIComponent(id)}/use`, { method: "POST" });
+}
+
+export const hasProfileCookie = () => /(?:^|;\s*)archivist_profile=/.test(document.cookie);

@@ -1,12 +1,22 @@
 /**
- * The only state archivist owns: where the owner is in each unit, and what happened (finished a
- * unit, a work arrived) for tools that follow along. node:sqlite, one file under the data folder.
+ * The only state archivist owns: who reads (profiles), where each one is in each unit, and what
+ * happened (finished a unit, a work arrived) for tools that follow along. node:sqlite, one file
+ * under the data folder. The first profile is the owner's; a household adds more.
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+export const OWNER = "owner";
+
+export interface Profile {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Progress {
+  profile: string;
   workId: string;
   unitKey: string;
   position: number;
@@ -19,6 +29,7 @@ export interface Event {
   id: number;
   at: string;
   type: "finished" | "work_added" | "work_removed";
+  profile: string | null;
   workId: string;
   unitKey: string | null;
 }
@@ -29,68 +40,129 @@ export function isFinished(position: number, total: number, kind: "pages" | "vid
   return kind === "pages" ? position >= total : position / total >= 0.95;
 }
 
+/** A profile id from a name: lowercase ASCII, dashes ("Sol" → "sol", "Ñandú" → "nandu"). */
+export function profileId(name: string): string {
+  return name.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
 type Row = Record<string, unknown>;
 
 function toProgress(r: Row): Progress {
   return {
-    workId: String(r.work_id), unitKey: String(r.unit_key), position: Number(r.position), total: Number(r.total),
-    finished: Number(r.finished) === 1, updatedAt: String(r.updated_at),
+    profile: String(r.profile), workId: String(r.work_id), unitKey: String(r.unit_key), position: Number(r.position),
+    total: Number(r.total), finished: Number(r.finished) === 1, updatedAt: String(r.updated_at),
   };
 }
 
 export class Store {
   readonly db: DatabaseSync;
 
-  constructor(path: string) {
+  constructor(path: string, ownerName = "Yo") {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS progress (
-        work_id TEXT NOT NULL, unit_key TEXT NOT NULL, position REAL NOT NULL, total REAL NOT NULL,
-        finished INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY (work_id, unit_key));
+      CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, type TEXT NOT NULL,
         work_id TEXT NOT NULL, unit_key TEXT);
     `);
+    this.migrate();
+    this.db.prepare("INSERT OR IGNORE INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
+      .run(OWNER, ownerName, new Date().toISOString());
   }
 
+  /** 0.1 had one reader: its progress becomes the owner's, and events learn whose they are. */
+  private migrate(): void {
+    const cols = (t: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Row[]).map((r) => String(r.name));
+    const progress = cols("progress");
+    if (progress.length && !progress.includes("profile")) {
+      this.db.exec(`ALTER TABLE progress RENAME TO progress_v1;`);
+    }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS progress (
+      profile TEXT NOT NULL, work_id TEXT NOT NULL, unit_key TEXT NOT NULL, position REAL NOT NULL, total REAL NOT NULL,
+      finished INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY (profile, work_id, unit_key));`);
+    if (cols("progress_v1").length) {
+      this.db.exec(`INSERT OR IGNORE INTO progress SELECT '${OWNER}', work_id, unit_key, position, total, finished, updated_at
+        FROM progress_v1; DROP TABLE progress_v1;`);
+    }
+    if (!cols("events").includes("profile")) this.db.exec(`ALTER TABLE events ADD COLUMN profile TEXT;`);
+  }
+
+  // --- profiles ------------------------------------------------------------------------------
+  profiles(): Profile[] {
+    return (this.db.prepare("SELECT * FROM profiles ORDER BY created_at").all() as Row[])
+      .map((r) => ({ id: String(r.id), name: String(r.name), createdAt: String(r.created_at) }));
+  }
+
+  hasProfile(id: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM profiles WHERE id = ?").get(id);
+  }
+
+  addProfile(name: string): Profile {
+    const clean = name.trim().slice(0, 40);
+    const id = profileId(clean);
+    if (!clean || !id) throw new Error("a profile needs a name");
+    if (this.hasProfile(id)) throw new Error(`there is already a profile called ${clean}`);
+    const at = new Date().toISOString();
+    this.db.prepare("INSERT INTO profiles (id, name, created_at) VALUES (?, ?, ?)").run(id, clean, at);
+    return { id, name: clean, createdAt: at };
+  }
+
+  renameProfile(id: string, name: string): void {
+    if (!name.trim()) throw new Error("a profile needs a name");
+    this.db.prepare("UPDATE profiles SET name = ? WHERE id = ?").run(name.trim().slice(0, 40), id);
+  }
+
+  /** Removes a profile and its progress. The owner's cannot be removed. */
+  removeProfile(id: string): void {
+    if (id === OWNER) throw new Error("the owner's profile stays");
+    this.db.prepare("DELETE FROM progress WHERE profile = ?").run(id);
+    this.db.prepare("DELETE FROM profiles WHERE id = ?").run(id);
+  }
+
+  // --- progress ------------------------------------------------------------------------------
   save(workId: string, unitKey: string, position: number, total: number, kind: "pages" | "video",
-       now = new Date()): { progress: Progress; newlyFinished: boolean } {
-    const before = this.db.prepare("SELECT finished FROM progress WHERE work_id = ? AND unit_key = ?")
-      .get(workId, unitKey) as Row | undefined;
+       now = new Date(), profile = OWNER): { progress: Progress; newlyFinished: boolean } {
+    const before = this.db.prepare("SELECT finished FROM progress WHERE profile = ? AND work_id = ? AND unit_key = ?")
+      .get(profile, workId, unitKey) as Row | undefined;
     const finished = isFinished(position, total, kind) || Number(before?.finished ?? 0) === 1;
     const at = now.toISOString();
-    this.db.prepare(`INSERT INTO progress (work_id, unit_key, position, total, finished, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (work_id, unit_key) DO UPDATE SET position = excluded.position,
+    this.db.prepare(`INSERT INTO progress (profile, work_id, unit_key, position, total, finished, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (profile, work_id, unit_key) DO UPDATE SET position = excluded.position,
       total = excluded.total, finished = excluded.finished, updated_at = excluded.updated_at`)
-      .run(workId, unitKey, position, total, finished ? 1 : 0, at);
+      .run(profile, workId, unitKey, position, total, finished ? 1 : 0, at);
     const newlyFinished = finished && Number(before?.finished ?? 0) !== 1;
-    if (newlyFinished) this.event("finished", workId, unitKey, now);
-    return { progress: { workId, unitKey, position, total, finished, updatedAt: at }, newlyFinished };
+    if (newlyFinished) this.event("finished", workId, unitKey, now, profile);
+    return { progress: { profile, workId, unitKey, position, total, finished, updatedAt: at }, newlyFinished };
   }
 
-  forWork(workId: string): Progress[] {
-    return (this.db.prepare("SELECT * FROM progress WHERE work_id = ?").all(workId) as Row[]).map(toProgress);
+  forWork(workId: string, profile = OWNER): Progress[] {
+    return (this.db.prepare("SELECT * FROM progress WHERE profile = ? AND work_id = ?").all(profile, workId) as Row[])
+      .map(toProgress);
   }
 
-  all(): Progress[] {
-    return (this.db.prepare("SELECT * FROM progress ORDER BY updated_at DESC").all() as Row[]).map(toProgress);
+  all(profile = OWNER): Progress[] {
+    return (this.db.prepare("SELECT * FROM progress WHERE profile = ? ORDER BY updated_at DESC").all(profile) as Row[])
+      .map(toProgress);
   }
 
   /** The unit last touched in each work, newest first: the "continue" shelf. */
-  latest(): Progress[] {
+  latest(profile = OWNER): Progress[] {
     const seen = new Set<string>();
-    return this.all().filter((p) => !seen.has(p.workId) && seen.add(p.workId));
+    return this.all(profile).filter((p) => !seen.has(p.workId) && seen.add(p.workId));
   }
 
-  event(type: Event["type"], workId: string, unitKey: string | null = null, now = new Date()): void {
-    this.db.prepare("INSERT INTO events (at, type, work_id, unit_key) VALUES (?, ?, ?, ?)")
-      .run(now.toISOString(), type, workId, unitKey);
+  // --- events --------------------------------------------------------------------------------
+  event(type: Event["type"], workId: string, unitKey: string | null = null, now = new Date(), profile: string | null = null): void {
+    this.db.prepare("INSERT INTO events (at, type, work_id, unit_key, profile) VALUES (?, ?, ?, ?, ?)")
+      .run(now.toISOString(), type, workId, unitKey, profile);
   }
 
   events(since = 0, limit = 500): Event[] {
     return (this.db.prepare("SELECT * FROM events WHERE id > ? ORDER BY id LIMIT ?").all(since, limit) as Row[])
-      .map((r) => ({ id: Number(r.id), at: String(r.at), type: r.type as Event["type"], workId: String(r.work_id),
+      .map((r) => ({ id: Number(r.id), at: String(r.at), type: r.type as Event["type"],
+        profile: r.profile === null || r.profile === undefined ? null : String(r.profile), workId: String(r.work_id),
         unitKey: r.unit_key === null ? null : String(r.unit_key) }));
   }
 

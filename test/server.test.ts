@@ -139,6 +139,24 @@ describe("server", () => {
     expect((await fetch(`${base}/opds/continue`, { headers: basic })).status).toBe(200);
   });
 
+  it("keeps a separate place for each profile: header, cookie and OPDS user name", async () => {
+    const { base, api } = await start(LIB);
+    expect((await (await api("/api/v1/profiles", { method: "POST", body: JSON.stringify({ name: "Sol" }) })).json() as { id: string }).id).toBe("sol");
+    await api("/api/v1/progress/pages/berserk/v01", { method: "PUT", body: JSON.stringify({ position: 2, total: 3 }) });
+    await api("/api/v1/progress/pages/berserk/v01", { method: "PUT", headers: { "x-archivist-profile": "sol" },
+      body: JSON.stringify({ position: 1, total: 3 }) });
+    const mine = await (await api("/api/v1/progress")).json() as { profile: string; all: { position: number }[] };
+    expect(mine).toMatchObject({ profile: "owner", all: [{ position: 2 }] });
+    const use = await api("/api/v1/profiles/sol/use", { method: "POST" });
+    const cookie = use.headers.get("set-cookie")!.split(";")[0]!;
+    const hers = await (await api("/api/v1/progress", { headers: { cookie } })).json() as { profile: string; all: { position: number }[] };
+    expect(hers).toMatchObject({ profile: "sol", all: [{ position: 1 }] });
+    const basicSol = { authorization: `Basic ${Buffer.from(`sol:${TOKEN}`).toString("base64")}` };
+    expect(await (await fetch(`${base}/opds/w/pages/berserk`, { headers: basicSol })).text()).toContain('pse:lastRead="0"');
+    expect((await api("/api/v1/profiles/owner", { method: "DELETE" })).status).toBe(400);
+    expect((await api("/api/v1/profiles/sol", { method: "DELETE" })).status).toBe(200);
+  });
+
   it("serves a placeholder when the UI is not built", async () => {
     const { base } = await start(LIB);
     expect(await (await fetch(`${base}/`)).text()).toContain("UI is not built");

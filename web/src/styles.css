@@ -109,3 +109,12 @@ label.check { display: inline-flex; gap: 6px; align-items: center; margin: 0; co
   .grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
   .stage img.half { max-width: 50%; }
 }
+
+/* profiles */
+.top nav a.who { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+.profiles { display: flex; flex-wrap: wrap; gap: 22px; margin: 24px 0; }
+.profile { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 110px; }
+.avatar { width: 88px; height: 88px; border-radius: 18px; font-size: 36px; font-weight: 800; justify-content: center;
+  background: var(--surface); border: 2px solid var(--line); }
+.profile.on .avatar { border-color: var(--accent); color: var(--accent); }
+button.link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; font-size: 13px; }

@@ -88,6 +88,7 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 | `ARCHIVIST_PORT` | `8780` | |
 | `ARCHIVIST_TOKEN` | — | For the API (`Authorization: Bearer`) and the browser login. |
 | `ARCHIVIST_BACKUP_DIR` | — | A daily copy of the database (progress), the newest 14 kept. |
+| `ARCHIVIST_OWNER_NAME` | `Yo` | The first profile's name. More profiles are added in the UI. |
 | `ARCHIVIST_TRUSTED` | — | Networks that need no token: `loopback`, `tailscale`, `lan`, or CIDRs (`192.168.1.0/24`). Judged by the connection's address, never by headers. |
 
 ## API

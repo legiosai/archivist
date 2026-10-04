@@ -8,7 +8,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { timingSafeEqual } from "node:crypto";
 import { extname, join, normalize } from "node:path";
 import { isTrusted, trustedNetworks, type Config } from "./config.ts";
-import { Store, type Progress } from "./db.ts";
+import { OWNER, Store, type Progress } from "./db.ts";
 import { Library } from "./library/index.ts";
 import type { Unit, Work } from "./library/scan.ts";
 import { openPages } from "./media/pages.ts";
@@ -18,6 +18,7 @@ import { UploadError, Uploads } from "./uploads.ts";
 
 const RESCAN_MS = 5 * 60_000;
 const COOKIE = "archivist_token";
+const PROFILE_COOKIE = "archivist_profile";
 const STATIC_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
   ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json", ".webmanifest": "application/manifest+json",
@@ -90,10 +91,12 @@ function sameToken(given: string | undefined, token: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function cookieToken(req: IncomingMessage): string | undefined {
-  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`).exec(req.headers.cookie ?? "");
+function cookie(req: IncomingMessage, name: string): string | undefined {
+  const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(req.headers.cookie ?? "");
   return m ? decodeURIComponent(m[1]!) : undefined;
 }
+
+const cookieToken = (req: IncomingMessage) => cookie(req, COOKIE);
 
 export interface App {
   server: Server;
@@ -103,7 +106,7 @@ export interface App {
 }
 
 export function createApp(cfg: Config): App {
-  const store = new Store(join(cfg.data, "archivist.db"));
+  const store = new Store(join(cfg.data, "archivist.db"), process.env.ARCHIVIST_OWNER_NAME || "Yo");
   const library = new Library(cfg.library, store);
   library.rescan();
   const uploads = new Uploads(join(cfg.data, "uploads"), library);
@@ -127,9 +130,25 @@ export function createApp(cfg: Config): App {
     || sameToken(basicPassword(req), cfg.token)
     || sameToken(cookieToken(req), cfg.token);
 
+  /**
+   * Whose progress a request reads and writes: the X-Archivist-Profile header or ?profile= (tools),
+   * the profile cookie (the browser), or the Basic auth user name (OPDS readers); else the owner.
+   */
+  function who(req: IncomingMessage, url?: URL): string {
+    const basicUser = (() => {
+      const b = /^Basic (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+      return b ? Buffer.from(b, "base64").toString("utf8").split(":")[0] : undefined;
+    })();
+    for (const c of [req.headers["x-archivist-profile"], url?.searchParams.get("profile"), cookie(req, PROFILE_COOKIE), basicUser]) {
+      const id = typeof c === "string" ? c.trim().toLowerCase() : "";
+      if (id && store.hasProfile(id)) return id;
+    }
+    return OWNER;
+  }
+
   // --- views of a work for the API ---------------------------------------------------------
-  function workView(w: Work, withUnits = false) {
-    const progress = store.forWork(w.id);
+  function workView(w: Work, withUnits = false, profile = OWNER) {
+    const progress = store.forWork(w.id, profile);
     const byUnit = new Map(progress.map((p) => [p.unitKey, p]));
     const last = progress.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
     const base = {
@@ -170,8 +189,9 @@ export function createApp(cfg: Config): App {
     } : {});
   }, true);
 
-  route("GET", "/api/v1/works", (_q, res) => {
-    const works = library.list().map((w) => workView(w));
+  route("GET", "/api/v1/works", (req, res, _p, url) => {
+    const profile = who(req, url);
+    const works = library.list().map((w) => workView(w, false, profile));
     works.sort((a, b) => a.title.localeCompare(b.title, "es"));
     json(res, 200, { works });
   });
@@ -185,16 +205,16 @@ export function createApp(cfg: Config): App {
         ids: b.ids && typeof b.ids === "object" ? b.ids as Record<string, string> : undefined,
         slug: b.slug ? String(b.slug) : undefined,
       });
-      json(res, 201, workView(w, true));
+      json(res, 201, workView(w, true, who(req)));
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }
   });
 
-  route("GET", "/api/v1/works/:kind/:slug", (_q, res, p) => {
+  route("GET", "/api/v1/works/:kind/:slug", (req, res, p, url) => {
     const w = library.get(`${p.kind}/${p.slug}`);
     if (!w) throw new HttpError(404, "unknown work");
-    json(res, 200, workView(w, true));
+    json(res, 200, workView(w, true, who(req, url)));
   });
 
   route("GET", "/api/v1/works/:kind/:slug/cover", async (req, res, p) => {
@@ -295,37 +315,39 @@ export function createApp(cfg: Config): App {
     res.end(xml);
   };
   route("GET", "/opds", (_q, res) => atom(res, rootFeed(library)));
-  route("GET", "/opds/all", (_q, res) => atom(res, worksFeed(library, store, "all")));
-  route("GET", "/opds/continue", (_q, res) => atom(res, worksFeed(library, store, "continue")));
-  route("GET", "/opds/type/:type", (_q, res, p) => atom(res, worksFeed(library, store, p.type!)));
-  route("GET", "/opds/w/:kind/:slug", async (_q, res, p) => {
+  route("GET", "/opds/all", (req, res) => atom(res, worksFeed(library, store, "all", undefined, who(req))));
+  route("GET", "/opds/continue", (req, res) => atom(res, worksFeed(library, store, "continue", undefined, who(req))));
+  route("GET", "/opds/type/:type", (req, res, p) => atom(res, worksFeed(library, store, p.type!, undefined, who(req))));
+  route("GET", "/opds/w/:kind/:slug", async (req, res, p) => {
     const w = library.get(`${p.kind}/${p.slug}`);
     if (!w) throw new HttpError(404, "unknown work");
     const counts = new Map<string, number>();
     for (const u of w.units) {
       try { counts.set(u.key, (await openPages(cfg.library, u, cache)).count); } catch { counts.set(u.key, 0); }
     }
-    atom(res, workFeed(w, store, counts));
+    atom(res, workFeed(w, store, counts, undefined, who(req)));
   });
-  route("GET", "/opds/pse/:kind/:slug/:unit/:n", async (_q, res, p) => {
+  route("GET", "/opds/pse/:kind/:slug/:unit/:n", async (req, res, p) => {
     const { work, unit } = find(p);
+    const profile = who(req);
     const pages = await openPages(cfg.library, unit, cache);
     const n = Number(p.n) + 1;                        // PSE counts from 0
     if (!Number.isInteger(n) || n < 1 || n > pages.count) throw new HttpError(404, "no such page");
     const page = await pages.page(n);
-    const before = store.forWork(work.id).find((x) => x.unitKey === unit.key);
+    const before = store.forWork(work.id, profile).find((x) => x.unitKey === unit.key);
     if (!before || before.finished || n > before.position || n < before.position - 1) {
-      store.save(work.id, unit.key, n, pages.count, "pages");
+      store.save(work.id, unit.key, n, pages.count, "pages", new Date(), profile);
     }
     res.writeHead(200, { "content-type": page.type, "content-length": page.data.length, "cache-control": "private, max-age=86400" });
     res.end(page.data);
   });
 
-  route("GET", "/api/v1/progress", (_q, res) => {
-    const latest = store.latest().filter((p) => library.get(p.workId)).map((p) => ({
-      ...p, work: workView(library.get(p.workId)!),
+  route("GET", "/api/v1/progress", (req, res, _p, url) => {
+    const profile = who(req, url);
+    const latest = store.latest(profile).filter((p) => library.get(p.workId)).map((p) => ({
+      ...p, work: workView(library.get(p.workId)!, false, profile),
     }));
-    json(res, 200, { latest, all: store.all() });
+    json(res, 200, { profile, latest, all: store.all(profile) });
   });
 
   route("PUT", "/api/v1/progress/:kind/:slug/:unit", async (req, res, p) => {
@@ -336,7 +358,7 @@ export function createApp(cfg: Config): App {
       throw new HttpError(400, "position and total must be numbers");
     }
     const kind = unit.format === "video" ? "video" : "pages";
-    json(res, 200, store.save(work.id, unit.key, position, total, kind));
+    json(res, 200, store.save(work.id, unit.key, position, total, kind, new Date(), who(req, new URL(req.url ?? "/", "http://x"))));
   });
 
   route("GET", "/api/v1/events", (_q, res, _p, url) => {
@@ -344,6 +366,38 @@ export function createApp(cfg: Config): App {
   });
 
   route("POST", "/api/v1/rescan", (_q, res) => json(res, 200, library.rescan()));
+
+  // --- profiles ----------------------------------------------------------------------------
+  route("GET", "/api/v1/profiles", (req, res, _p, url) => json(res, 200, { profiles: store.profiles(), current: who(req, url) }));
+
+  route("POST", "/api/v1/profiles", async (req, res) => {
+    const b = await readJson(req);
+    try {
+      json(res, 201, store.addProfile(String(b.name ?? "")));
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  route("PATCH", "/api/v1/profiles/:id", async (req, res, p) => {
+    if (!store.hasProfile(p.id!)) throw new HttpError(404, "unknown profile");
+    const b = await readJson(req);
+    try { store.renameProfile(p.id!, String(b.name ?? "")); } catch (err) { throw new HttpError(400, (err as Error).message); }
+    json(res, 200, { profiles: store.profiles() });
+  });
+
+  route("DELETE", "/api/v1/profiles/:id", (_q, res, p) => {
+    if (!store.hasProfile(p.id!)) throw new HttpError(404, "unknown profile");
+    try { store.removeProfile(p.id!); } catch (err) { throw new HttpError(400, (err as Error).message); }
+    json(res, 200, { profiles: store.profiles() });
+  });
+
+  route("POST", "/api/v1/profiles/:id/use", (_q, res, p) => {
+    if (!store.hasProfile(p.id!)) throw new HttpError(404, "unknown profile");
+    json(res, 200, { current: p.id }, {
+      "set-cookie": `${PROFILE_COOKIE}=${encodeURIComponent(p.id!)}; SameSite=Strict; Path=/; Max-Age=31536000`,
+    });
+  });
 
   route("POST", "/api/v1/uploads", async (req, res) => {
     const b = await readJson(req);

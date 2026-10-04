@@ -5,7 +5,7 @@
  * Fetching a page through PSE also saves it as the owner's position, so reading on the phone
  * moves the same "continue" shelf as reading in the browser.
  */
-import type { Store } from "./db.ts";
+import { OWNER, type Store } from "./db.ts";
 import type { Library } from "./library/index.ts";
 import type { Work } from "./library/scan.ts";
 
@@ -68,12 +68,13 @@ function workEntry(w: Work, at: string): string {
   </entry>`;
 }
 
-export function worksFeed(library: Library, store: Store, which: "all" | "continue" | string, now = new Date()): string {
+export function worksFeed(library: Library, store: Store, which: "all" | "continue" | string, now = new Date(),
+                          profile = OWNER): string {
   const at = now.toISOString();
   let works = library.list().filter(readable);
   let title = "Todo";
   if (which === "continue") {
-    const order = store.latest().map((p) => p.workId);
+    const order = store.latest(profile).map((p) => p.workId);
     works = order.map((id) => library.get(id)).filter((w): w is Work => !!w && readable(w));
     title = "Seguir leyendo";
   } else if (which !== "all") {
@@ -86,9 +87,9 @@ export function worksFeed(library: Library, store: Store, which: "all" | "contin
 }
 
 /** One work: an entry per volume, with its file and a PSE stream that knows where you are. */
-export function workFeed(w: Work, store: Store, counts: Map<string, number>, now = new Date()): string {
+export function workFeed(w: Work, store: Store, counts: Map<string, number>, now = new Date(), profile = OWNER): string {
   const at = now.toISOString();
-  const progress = new Map(store.forWork(w.id).map((p) => [p.unitKey, p]));
+  const progress = new Map(store.forWork(w.id, profile).map((p) => [p.unitKey, p]));
   const entries = w.units.map((u) => {
     const base = `/api/v1/units/${w.id}/${u.key}`;
     const p = progress.get(u.key);
