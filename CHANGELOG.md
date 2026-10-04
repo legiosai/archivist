@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 — 2026-10-04
+
+- For agents: an MCP server at `/mcp` (Streamable HTTP, stateless, the same token) with nine
+  tools: search the library, list and open works, look at a page or a frame (scaled down for a
+  model), read and save progress, follow events, list profiles. `/api/v1/search`, an OpenAPI 3.1
+  document at `/api/v1/openapi.json`, and `/llms.txt`.
+- Safe to publish behind a reverse proxy: a request with forwarding headers is never trusted
+  (and its client address is read only from `ARCHIVIST_PROXIES`, loopback by default), browser sessions
+  replace the token in the cookie (revocable from Perfiles), wrong tokens are logged with the
+  real address and limited to 10 per 15 minutes, hardening headers and HSTS, DNS rebinding
+  closed, and video stays home unless `ARCHIVIST_PROXIED_VIDEO=on`.
+- A new look: Fraunces and Inter (bundled, no font CDN), a "continue" hero with the cover's
+  colors, glass header, covers with type badges and progress, volumes and episodes as cards
+  with their own thumbnails, seasons as tabs, skeletons while loading, colored profiles.
+- Smaller images for grids: `?w=` on covers, pages and frames (cached), and `?at=` for a frame
+  at a share of the running time.
+- Fix: two requests for the same frame at once could fail.
+- Upgrading: browsers log in once more (the old token cookie is no longer read).
+
 ## 0.3.0 — 2026-10-03
 
 - Profiles: each person in the house keeps their own place in every work. "¿Quién lee?" when

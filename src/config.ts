@@ -16,6 +16,8 @@ export interface Config {
   proxiedVideo?: boolean;
   /** More names that reach this server from a trusted network (ARCHIVIST_HOSTS), beyond the usual ones. */
   hosts?: string[];
+  /** Reverse proxies whose forwarded client address is believed (ARCHIVIST_PROXIES); loopback by default. */
+  proxies?: BlockList;
 }
 
 /** Shorthands for ARCHIVIST_TRUSTED, plus any CIDR ("192.168.1.0/24"). */
@@ -25,14 +27,14 @@ export const NETWORKS: Record<string, string[]> = {
   lan: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10"],
 };
 
-export function trustedNetworks(spec: string | undefined): BlockList {
+export function trustedNetworks(spec: string | undefined, variable = "ARCHIVIST_TRUSTED"): BlockList {
   const list = new BlockList();
   const items = (spec ?? "").split(/[\s,]+/).filter(Boolean);
   for (const item of items) {
     for (const cidr of NETWORKS[item.toLowerCase()] ?? [item]) {
       const [net, bits] = cidr.split("/");
       const family = isIP(net ?? "");
-      if (!family || !bits || Number.isNaN(Number(bits))) throw new Error(`ARCHIVIST_TRUSTED: not a network: ${cidr}`);
+      if (!family || !bits || Number.isNaN(Number(bits))) throw new Error(`${variable}: not a network: ${cidr}`);
       list.addSubnet(net!, Number(bits), family === 6 ? "ipv6" : "ipv4");
     }
   }
@@ -68,5 +70,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trusted: trustedNetworks(env.ARCHIVIST_TRUSTED),
     proxiedVideo: /^(1|on|true|yes)$/i.test(env.ARCHIVIST_PROXIED_VIDEO ?? ""),
     hosts: (env.ARCHIVIST_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean),
+    proxies: trustedNetworks(env.ARCHIVIST_PROXIES || "loopback", "ARCHIVIST_PROXIES"),
   };
 }

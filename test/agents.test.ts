@@ -4,7 +4,9 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { IncomingMessage } from "node:http";
 import { trustedNetworks } from "../src/config.ts";
+import { clientOf, localHost } from "../src/security.ts";
 import type { Work } from "../src/library/scan.ts";
 import { toolNames } from "../src/mcp.ts";
 import { openapi } from "../src/openapi.ts";
@@ -145,5 +147,34 @@ describe("DNS rebinding", () => {
     expect(await get(`valensrv:${port}`)).toBe(200);
     expect(await get(`valensrv.tail1234.ts.net`)).toBe(200);
     expect(await get(`evil.example.com:${port}`)).toBe(401);
+  });
+});
+
+describe("who is asking", () => {
+  const req = (socket: string, headers: Record<string, string> = {}) =>
+    ({ socket: { remoteAddress: socket }, headers }) as unknown as IncomingMessage;
+
+  it("reads the real address only from a known proxy, and never trusts a forwarded request", () => {
+    // cloudflared on this machine
+    expect(clientOf(req("127.0.0.1", { "cf-connecting-ip": "198.51.100.7", "cf-visitor": '{"scheme":"https"}' })))
+      .toEqual({ ip: "198.51.100.7", proxied: true, https: true });
+    // a proxy in Docker, declared in ARCHIVIST_PROXIES
+    const docker = trustedNetworks("172.17.0.0/16", "ARCHIVIST_PROXIES");
+    expect(clientOf(req("::ffff:172.17.0.1", { "x-forwarded-for": "203.0.113.5, 172.17.0.1", "x-forwarded-proto": "https" }), docker))
+      .toEqual({ ip: "203.0.113.5", proxied: true, https: true });
+    // the same proxy, not declared: still not trusted, but its header isn't believed either
+    expect(clientOf(req("172.17.0.1", { "x-forwarded-for": "203.0.113.5" })))
+      .toEqual({ ip: "172.17.0.1", proxied: true, https: false });
+    // someone on the LAN making up a header gets nothing for it
+    expect(clientOf(req("192.168.100.20", { "x-forwarded-for": "127.0.0.1" }))).toMatchObject({ ip: "192.168.100.20", proxied: true });
+    expect(clientOf(req("192.168.100.20"))).toEqual({ ip: "192.168.100.20", proxied: false, https: false });
+  });
+
+  it("knows the names a person at home would type", () => {
+    for (const h of ["192.168.100.3:8780", "[::1]:8780", "localhost", "valensrv:8780", "valensrv.tail1234.ts.net", "nas.local"]) {
+      expect(localHost(h)).toBe(true);
+    }
+    for (const h of ["evil.example.com", "archivist.example.com", "1.2.3.4.nip.io", undefined]) expect(localHost(h)).toBe(false);
+    expect(localHost("archivist.example.com", ["archivist.example.com"])).toBe(true);
   });
 });

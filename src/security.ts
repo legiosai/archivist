@@ -1,10 +1,12 @@
 /**
  * What changes when archivist is published behind a reverse proxy (a Cloudflare Tunnel, say):
  *
- * - The proxy connects from this machine, so the socket says 127.0.0.1. A request that arrives
- *   from loopback carrying CF-Connecting-IP or X-Forwarded-For is *proxied*: its client is the
- *   address in that header, and it is never on a trusted network, whatever ARCHIVIST_TRUSTED says.
- *   (Only a local process can reach loopback, so only the proxy can set those headers there.)
+ * - A request carrying CF-Connecting-IP, X-Forwarded-For or Forwarded came through a proxy (or
+ *   pretends to): it is never on a trusted network, whatever ARCHIVIST_TRUSTED says and wherever
+ *   the socket is. A proxy on this machine connects from 127.0.0.1; one in Docker, from a
+ *   private address that `lan` would trust — the header is what gives both away.
+ * - Its client is the address in that header only when the socket is a known proxy
+ *   (ARCHIVIST_PROXIES, loopback by default); otherwise anyone could pick their own address.
  * - Failed logins and wrong tokens are counted per client: past MAX_FAILURES in WINDOW_MS the
  *   client gets 429 until the window ends, and every failure is logged in one line that a log
  *   watcher (CrowdSec) can turn into a ban at the edge.
@@ -15,7 +17,8 @@
  * - Every response carries the usual hardening headers; HSTS only when the request came over HTTPS.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
+import { isTrusted } from "./config.ts";
 
 export const MAX_FAILURES = 10;
 export const WINDOW_MS = 15 * 60_000;
@@ -26,25 +29,28 @@ export interface Client {
   https: boolean;
 }
 
-const LOOPBACK = (a: string | undefined) => !!a && (a === "::1" || a.startsWith("127.") || a.startsWith("::ffff:127."));
-
 function firstForwarded(v: string | string[] | undefined): string | undefined {
   const s = Array.isArray(v) ? v[0] : v;
   const ip = s?.split(",")[0]?.trim();
   return ip && isIP(ip) ? ip : undefined;
 }
 
-export function clientOf(req: IncomingMessage): Client {
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet("127.0.0.0", 8, "ipv4");
+LOOPBACK.addAddress("::1", "ipv6");
+
+export function clientOf(req: IncomingMessage, proxies: BlockList = LOOPBACK): Client {
   const socket = req.socket.remoteAddress ?? "";
-  const forwarded = LOOPBACK(socket)
-    ? firstForwarded(req.headers["cf-connecting-ip"]) ?? firstForwarded(req.headers["x-forwarded-for"])
-    : undefined;
-  const proto = String(req.headers["x-forwarded-proto"] ?? "");
-  const visitor = String(req.headers["cf-visitor"] ?? "");
+  const h = req.headers;
+  const proxied = h["cf-connecting-ip"] !== undefined || h["x-forwarded-for"] !== undefined || h.forwarded !== undefined;
+  const viaProxy = proxied && isTrusted(proxies, socket);
+  const forwarded = viaProxy ? firstForwarded(h["cf-connecting-ip"]) ?? firstForwarded(h["x-forwarded-for"]) : undefined;
+  const proto = String(h["x-forwarded-proto"] ?? "");
+  const visitor = String(h["cf-visitor"] ?? "");
   return {
     ip: forwarded ?? socket,
-    proxied: forwarded !== undefined,
-    https: forwarded !== undefined && (proto === "https" || visitor.includes('"https"')),
+    proxied,
+    https: viaProxy && (proto === "https" || visitor.includes('"https"')),
   };
 }
 

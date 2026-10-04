@@ -8,6 +8,9 @@ import { Profiles } from "./pages/Profiles.tsx";
 import { Reader } from "./pages/Reader.tsx";
 import { Upload } from "./pages/Upload.tsx";
 import { WorkPage } from "./pages/WorkPage.tsx";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/fraunces/opsz.css";
+import "@fontsource-variable/fraunces/opsz-italic.css";
 import "./styles.css";
 
 function useHash(): string[] {

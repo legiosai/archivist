@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AuthError, api, go, saveProgress, unitPath, type VideoInfo, type WorkDetail } from "../api.ts";
+import { Icon } from "../icons.tsx";
 
 /**
  * The video, from where it was left. A file the browser can't play is prepared first (once);
@@ -26,6 +27,7 @@ export function Player({ id, unitKey, onAuth }: { id: string; unitKey: string; o
         const i = await api<VideoInfo>(`${base}/info`);
         if (stop) return;
         setInfo(i);
+        if (i.allowed === false) return;
         if (!i.ready) {
           if (!i.job || i.job.state === "queued" && i.job.progress === 0) await api(`${base}/prepare`, { method: "POST" });
           if (i.job?.state !== "failed") timer = setTimeout(poll, 2000);
@@ -85,25 +87,36 @@ export function Player({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   return (
     <div className="player">
       <div className="reader-bar">
-        <a href={`#/w/${id}`}>← {work?.title ?? "Volver"}</a>
-        <span className="small">{unit?.label}</span>
+        <a className="back" href={`#/w/${id}`}><Icon name="back" /><span>{work?.title ?? "Volver"}</span></a>
+        {unit && <span className="pill">{unit.label}</span>}
         <span />
       </div>
-      {error && <p className="bad">{error}</p>}
-      {info && !info.ready && (
+      {error && <p className="notice bad">{error}</p>}
+      {!info && !error && <div className="reader-loading"><div className="spinner" aria-label="Cargando" /></div>}
+      {info?.allowed === false && (
+        <div className="preparing">
+          <Icon name="wifi" className="icon" />
+          <h1>El video se ve en casa</h1>
+          <p className="faint">Desde internet, archivist muestra la biblioteca, lee mangas y cómics y guarda tu progreso, pero no
+            transmite películas ni episodios. Abrilo desde la red de tu casa o por Tailscale y sigue donde lo dejaste.</p>
+          <a className="btn" href={`#/w/${id}`}><Icon name="back" /> Volver a la obra</a>
+        </div>
+      )}
+      {info && info.allowed !== false && !info.ready && (
         <div className="preparing">
           {info.job?.state === "failed" ? (
             <p className="bad">No se pudo preparar el video: {info.job.error}</p>
           ) : (
             <>
-              <p>Preparando el video para el navegador{info.job && info.job.progress > 0 ? ` (${Math.round(info.job.progress * 100)} %)` : "…"}</p>
+              <div className="spinner" />
+              <h1>Preparando el video{info.job && info.job.progress > 0 ? ` · ${Math.round(info.job.progress * 100)} %` : "…"}</h1>
               <p className="faint small">Pasa una sola vez por archivo. Si solo cambia el contenedor tarda segundos; si hay que convertir el video, más.</p>
               <div className="bar"><div style={{ width: `${(info.job?.progress ?? 0) * 100}%` }} /></div>
             </>
           )}
         </div>
       )}
-      {info?.ready && (
+      {info?.ready && info.allowed !== false && (
         <video ref={video} src={`${base}/video`} controls autoPlay playsInline preload="metadata"
                onLoadedMetadata={onLoaded} onTimeUpdate={onTime} onPause={onPause} onEnded={onEnded}>
           {info.subtitles.map((s, i) => <track key={s.href} kind="subtitles" src={s.href} label={s.label} default={i === 0} />)}

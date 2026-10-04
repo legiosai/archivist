@@ -1,4 +1,5 @@
-// The UI talks to the same API as any tool; the token travels in an HttpOnly cookie after login.
+// The UI talks to the same API as any tool. After login the browser holds a session cookie
+// (HttpOnly, revocable from Perfiles); the token itself never leaves the login form.
 
 export type WorkType = "film" | "series" | "anime" | "manga" | "comic";
 
@@ -44,6 +45,8 @@ export interface WorkDetail extends WorkSummary {
 export interface VideoInfo {
   duration: number;
   ready: boolean;
+  /** False when this request came through the public proxy and video stays home. */
+  allowed?: boolean;
   job: { state: string; progress: number; error?: string } | null;
   subtitles: { index: number; label: string; href: string }[];
 }
@@ -115,3 +118,18 @@ export async function useProfile(id: string): Promise<void> {
 }
 
 export const hasProfileCookie = () => /(?:^|;\s*)archivist_profile=/.test(document.cookie);
+
+export interface Session { created_at: string; last_seen: string; ip: string; agent: string }
+
+export async function logout(): Promise<void> {
+  await fetch("/api/v1/logout", { method: "POST", credentials: "same-origin" });
+}
+
+/** Whether this browser gets in without a token (a trusted network) — then there is no session to end. */
+export async function isOpen(): Promise<boolean> {
+  try {
+    return Boolean(((await (await fetch("/api/v1/health", { credentials: "same-origin" })).json()) as { open?: boolean }).open);
+  } catch {
+    return false;
+  }
+}

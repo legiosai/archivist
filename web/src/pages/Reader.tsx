@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthError, api, go, saveProgress, unitPath, useQuery, type WorkDetail } from "../api.ts";
+import { Icon } from "../icons.tsx";
 
 type Mode = "rtl" | "ltr" | "vertical";
 
@@ -125,8 +126,8 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   function setModeSaved(m: Mode) { setMode(m); store(`mode:${id}`, m); }
   function setDoubleSaved(d: boolean) { setDouble(d); store(`double:${id}`, d); }
 
-  if (error) return <main><p className="bad">{error}</p><a href={`#/w/${id}`}>Volver</a></main>;
-  if (!work || !page) return <main className="reader-loading"><p className="faint">Abriendo…</p></main>;
+  if (error) return <main><p className="notice bad">{error}</p><a href={`#/w/${id}`}>Volver</a></main>;
+  if (!work || !page) return <main className="reader-loading"><div className="spinner" aria-label="Abriendo" /></main>;
 
   const pages = mode === "vertical" ? [] : (step === 2 && lastShown > page ? [page, lastShown] : [page]);
   const ordered = mode === "rtl" ? [...pages].reverse() : pages;
@@ -134,8 +135,8 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   return (
     <div className={`reader ${chrome ? "" : "bare"}`}>
       <div className="reader-bar">
-        <a href={`#/w/${id}`}>← {work.title}</a>
-        <span className="small">{unit?.label} · {lastShown > page ? `${page}-${lastShown}` : page} / {count}</span>
+        <a className="back" href={`#/w/${id}`}><Icon name="back" /><span>{work.title}</span></a>
+        <span className="pill">{unit?.label} · {lastShown > page ? `${page}-${lastShown}` : page} / {count}</span>
         <div className="row">
           <select value={mode} onChange={(e) => setModeSaved(e.target.value as Mode)} aria-label="Sentido de lectura">
             <option value="rtl">Derecha a izquierda</option>
@@ -146,6 +147,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
             <label className="check small"><input type="checkbox" checked={double} onChange={(e) => setDoubleSaved(e.target.checked)} /> Doble</label>
           )}
         </div>
+        <div className="reader-progress"><div style={{ width: `${(lastShown / Math.max(1, count)) * 100}%` }} /></div>
       </div>
       {mode === "vertical" ? (
         <div className="strip" ref={strip}>

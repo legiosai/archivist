@@ -21,7 +21,7 @@ import { FailureLimiter, clientOf, hardenHeaders, localHost } from "./security.t
 import { serveMcp, type Catalog } from "./mcp.ts";
 import { llmsTxt, openapi } from "./openapi.ts";
 import { search } from "./search.ts";
-import { scaleDown } from "./media/image.ts";
+import { scaleDown, thumbWidth, thumbnail } from "./media/image.ts";
 
 const VERSION = (() => {
   try {
@@ -138,8 +138,9 @@ export function createApp(cfg: Config): App {
   // Only the socket's address counts, and a request that came through the reverse proxy is never
   // trusted (security.ts): from the tunnel, 127.0.0.1 means "someone on the internet".
   const trusted = cfg.trusted ?? trustedNetworks("");
+  const proxies = cfg.proxies ?? trustedNetworks("loopback");
   const limiter = new FailureLimiter();
-  const fromTrusted = (req: IncomingMessage) => !clientOf(req).proxied && isTrusted(trusted, req.socket.remoteAddress)
+  const fromTrusted = (req: IncomingMessage) => !clientOf(req, proxies).proxied && isTrusted(trusted, req.socket.remoteAddress)
     && localHost(req.headers.host, cfg.hosts);
   // Basic auth too (any user name, the token as password): it is what OPDS readers speak.
   const basicPassword = (req: IncomingMessage) => {
@@ -154,7 +155,7 @@ export function createApp(cfg: Config): App {
     || store.checkSession(sessionId(req));
   const presentedCredentials = (req: IncomingMessage) => !!req.headers.authorization || !!sessionId(req);
   const failed = (req: IncomingMessage, path: string) => {
-    const c = clientOf(req);
+    const c = clientOf(req, proxies);
     const n = limiter.fail(c.ip);
     // One line per failure, for CrowdSec (journald): never the credential itself.
     console.warn(`archivist: auth failure from ${c.ip} on ${path} (${n})`);
@@ -260,7 +261,7 @@ export function createApp(cfg: Config): App {
     return find({ kind: kind ?? "", slug: rest.join("/"), unit: key });
   }
 
-  const baseUrl = (req: IncomingMessage) => `${clientOf(req).https ? "https" : "http"}://${req.headers.host ?? "localhost"}`;
+  const baseUrl = (req: IncomingMessage) => `${clientOf(req, proxies).https ? "https" : "http"}://${req.headers.host ?? "localhost"}`;
 
   // --- routes ------------------------------------------------------------------------------
   route("GET", "/api/v1/openapi.json", (req, res) => json(res, 200, openapi(VERSION, baseUrl(req))), true);
@@ -296,7 +297,7 @@ export function createApp(cfg: Config): App {
 
   route("POST", "/api/v1/login", async (req, res) => {
     const body = await readJson(req);
-    const c = clientOf(req);
+    const c = clientOf(req, proxies);
     if (cfg.token && !sameToken(String(body.token ?? ""), cfg.token)) {
       failed(req, "/api/v1/login");
       throw new HttpError(401, "wrong token");
@@ -346,22 +347,27 @@ export function createApp(cfg: Config): App {
     json(res, 200, workView(w, true, who(req, url)));
   });
 
-  route("GET", "/api/v1/works/:kind/:slug/cover", async (req, res, p) => {
+  /** An image as is, or its cached `?w=` copy for grids. */
+  async function sendImage(res: ServerResponse, url: URL, key: string, source: () => Promise<{ type: string; data: Buffer }>) {
+    const w = thumbWidth(url.searchParams.get("w"));
+    const img = w ? await thumbnail(cache, key, w, source) : await source();
+    res.writeHead(200, { "content-type": img.type, "content-length": img.data.length, "cache-control": "private, max-age=86400" });
+    res.end(img.data);
+  }
+  const version = (u: Unit) => `${u.path}:${statSync(library.resolve(u.path)).mtimeMs}`;
+
+  route("GET", "/api/v1/works/:kind/:slug/cover", async (_q, res, p, url) => {
     const w = library.get(`${p.kind}/${p.slug}`);
     const unit = w?.units[0];
     if (!w || !unit) throw new HttpError(404, "no cover");
-    if (unit.format === "video") {
-      const file = library.resolve(unit.path);
-      const pr = await probe(file);
-      const img = await frame(file, Math.min(600, pr.duration * 0.1), cache);
-      res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "private, max-age=86400" });
-      res.end(img);
-      return;
-    }
-    const pages = await openPages(cfg.library, unit, cache);
-    const page = await pages.page(1);
-    res.writeHead(200, { "content-type": page.type, "cache-control": "private, max-age=86400" });
-    res.end(page.data);
+    await sendImage(res, url, `cover:${version(unit)}`, async () => {
+      if (unit.format === "video") {
+        const file = library.resolve(unit.path);
+        const pr = await probe(file);
+        return { type: "image/jpeg", data: await frame(file, Math.min(600, pr.duration * 0.1), cache) };
+      }
+      return (await openPages(cfg.library, unit, cache)).page(1);
+    });
   });
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/pages", async (_q, res, p) => {
@@ -370,19 +376,17 @@ export function createApp(cfg: Config): App {
     json(res, 200, { count: pages.count });
   });
 
-  route("GET", "/api/v1/units/:kind/:slug/:unit/pages/:n", async (_q, res, p) => {
+  route("GET", "/api/v1/units/:kind/:slug/:unit/pages/:n", async (_q, res, p, url) => {
     const { unit } = find(p);
     const pages = await openPages(cfg.library, unit, cache);
     const n = Number(p.n);
     if (!Number.isInteger(n) || n < 1 || n > pages.count) throw new HttpError(404, "no such page");
-    const page = await pages.page(n);
-    res.writeHead(200, { "content-type": page.type, "content-length": page.data.length, "cache-control": "private, max-age=86400" });
-    res.end(page.data);
+    await sendImage(res, url, `page:${version(unit)}:${n}`, () => pages.page(n));
   });
 
   // Through the public proxy, video is off unless ARCHIVIST_PROXIED_VIDEO=on: a CDN's free plan is
   // not a video host, and at home the LAN or Tailscale serve it better anyway.
-  const videoAllowed = (req: IncomingMessage) => cfg.proxiedVideo || !clientOf(req).proxied;
+  const videoAllowed = (req: IncomingMessage) => cfg.proxiedVideo || !clientOf(req, proxies).proxied;
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/video", async (req, res, p) => {
     const { unit } = find(p);
@@ -419,11 +423,19 @@ export function createApp(cfg: Config): App {
   route("GET", "/api/v1/units/:kind/:slug/:unit/frame", async (_q, res, p, url) => {
     const { unit } = find(p);
     if (unit.format !== "video") throw new HttpError(404, "not a video");
+    const file = library.resolve(unit.path);
+    // ?at=0.1 is a share of the running time (thumbnails, where the length isn't known yet).
+    const at = url.searchParams.get("at");
+    if (at !== null) {
+      const share = Number(at);
+      if (!Number.isFinite(share) || share < 0 || share > 1) throw new HttpError(400, "at must be between 0 and 1");
+      await sendImage(res, url, `frame:${version(unit)}:at${share}`,
+        async () => ({ type: "image/jpeg", data: await frame(file, (await probe(file)).duration * share, cache) }));
+      return;
+    }
     const t = Number(url.searchParams.get("t") ?? 0);
     if (!Number.isFinite(t) || t < 0) throw new HttpError(400, "t must be seconds");
-    const img = await frame(library.resolve(unit.path), t, cache);
-    res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "private, max-age=86400" });
-    res.end(img);
+    await sendImage(res, url, `frame:${version(unit)}:${t}`, async () => ({ type: "image/jpeg", data: await frame(file, t, cache) }));
   });
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/subtitles/:i", async (_q, res, p) => {
@@ -603,7 +615,7 @@ export function createApp(cfg: Config): App {
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://archivist");
-    const client = clientOf(req);
+    const client = clientOf(req, proxies);
     hardenHeaders(res, client.https);
     try {
       if (!fromTrusted(req) && limiter.blocked(client.ip)) {

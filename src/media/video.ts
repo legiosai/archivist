@@ -5,7 +5,7 @@
  * and subtitles as WebVTT. Clips are never cut for anyone (SOUL.md).
  */
 import { execFile, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { promisify } from "node:util";
@@ -148,17 +148,26 @@ export async function prepare(file: string, cacheDir: string): Promise<Job> {
   return job;
 }
 
-/** One frame at `seconds`, as JPEG, cached. */
+const extracting = new Map<string, Promise<void>>();
+
+/** One frame at `seconds`, as JPEG, cached. Asking twice at once runs ffmpeg once. */
 export async function frame(file: string, seconds: number, cacheDir: string): Promise<Buffer> {
   const t = Math.max(0, Math.round(seconds * 10) / 10);
   const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}:${t}`).digest("hex").slice(0, 20);
   const out = join(cacheDir, "frames", `${key}.jpg`);
   if (!existsSync(out)) {
-    mkdirSync(join(cacheDir, "frames"), { recursive: true });
-    const tmp = `${out}.${process.pid}.jpg`;
-    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", String(t), "-i", file,
-      "-frames:v", "1", "-q:v", "3", "-vf", "scale='min(1920,iw)':-2", tmp], { timeout: 60_000 });
-    renameSync(tmp, out);
+    let job = extracting.get(out);
+    if (!job) {
+      job = (async () => {
+        mkdirSync(join(cacheDir, "frames"), { recursive: true });
+        const tmp = `${out}.${process.pid}.${randomBytes(4).toString("hex")}.jpg`;
+        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", String(t), "-i", file,
+          "-frames:v", "1", "-q:v", "3", "-vf", "scale='min(1920,iw)':-2", tmp], { timeout: 60_000 });
+        renameSync(tmp, out);
+      })().finally(() => extracting.delete(out));
+      extracting.set(out, job);
+    }
+    await job;
   }
   return readFileSync(out);
 }

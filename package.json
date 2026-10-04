@@ -1,6 +1,6 @@
 {
   "name": "@legios/archivist",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Everything you own to read or watch, in one place, and it never forgets where you stopped.",
   "license": "MIT",
@@ -24,6 +24,8 @@
     "yaml": "^2.8.0"
   },
   "devDependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
     "@types/node": "^22.15.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

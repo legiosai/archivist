@@ -63,18 +63,19 @@ export function openapi(version: string, server?: string): Json {
       "/api/v1/works/{kind}/{slug}": { get: op("works", "One work with its units and their progress", { parameters: [...WORK, PROFILE] },
         { 200: ok("The work", ref("WorkDetail")), 404: ok("Unknown work") }) },
       "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the first page, or a frame at 10 % of the first video",
-        { parameters: WORK }, { 200: image("The cover") }) },
+        { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The cover") }) },
       "/api/v1/rescan": { post: op("works", "Read the folders again now") },
       "/api/v1/units/{kind}/{slug}/{unit}/pages": { get: op("units", "Page count", { parameters: UNIT },
         { 200: ok("Count", { type: "object", properties: { count: { type: "integer" } } }) }) },
-      "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}": { get: op("units", "One page (from 1), as stored", {
-        parameters: [...UNIT, path("n", "Page number, from 1.")] }, { 200: image("The page"), 404: ok("No such page") }) },
+      "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}": { get: op("units", "One page (from 1), as stored or scaled with ?w=", {
+        parameters: [...UNIT, path("n", "Page number, from 1."), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The page"), 404: ok("No such page") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/info": { get: op("units", "A video's running time, whether it plays now, and its subtitles",
         { parameters: UNIT }, { 200: ok("Info", { type: "object", properties: { duration: { type: "number" }, ready: { type: "boolean" },
           allowed: { type: "boolean", description: "False through the public proxy unless ARCHIVIST_PROXIED_VIDEO is on." },
           subtitles: { type: "array", items: { type: "object" } } } }) }) },
       "/api/v1/units/{kind}/{slug}/{unit}/frame": { get: op("units", "One still at `t` seconds, as JPEG (never a clip)", {
-        parameters: [...UNIT, query("t", "Seconds from the start.", { type: "number", minimum: 0 })] }, { 200: image("The frame") }) },
+        parameters: [...UNIT, query("t", "Seconds from the start.", { type: "number", minimum: 0 }),
+        query("at", "Or a share of the running time, 0 to 1.", { type: "number", minimum: 0, maximum: 1 }), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The frame") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/video": { get: op("units", "The video for the player, with HTTP ranges", { parameters: UNIT },
         { 200: ok("Video", undefined), 206: ok("Partial"), 403: ok("Not served through the public proxy"), 409: ok("Still converting") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/prepare": { post: op("units", "Convert a video the browser can't play (once, in the background)",

@@ -122,7 +122,7 @@ export function Upload({ preset, onAuth }: { preset: string | null; onAuth: () =
 
   return (
     <>
-      <Header />
+      <Header active="upload" />
       <main className="narrow">
         <h1>Subir</h1>
         <p className="faint small">Solo obras que tenés legalmente. archivist no descarga nada: lee lo que subís.</p>

@@ -86,7 +86,36 @@ entorno de ejemplo. Las variables están en el [README](README.md#install).
 
 Todo lo que hace la interfaz pasa por [la API](docs/api.md): obras, unidades,
 páginas, fotogramas sueltos, progreso, eventos y subidas que se retoman. Las
-herramientas reciben páginas y fotogramas, nunca clips.
+herramientas reciben páginas y fotogramas, nunca clips. Está descrita en OpenAPI
+3.1 en `/api/v1/openapi.json`.
+
+## Para agentes
+
+archivist es un servidor MCP en `/mcp` (HTTP con streaming, el mismo token). Un
+agente puede buscar en la biblioteca, abrir una obra, mirar una página o un
+fotograma, y leer o guardar dónde va cada uno:
+
+```sh
+claude mcp add --transport http archivist https://tu-servidor/mcp --header "Authorization: Bearer $ARCHIVIST_TOKEN"
+```
+
+Herramientas: `search_library`, `list_works`, `get_work`, `get_progress`,
+`set_progress`, `get_page`, `get_frame`, `recent_events`, `list_profiles`.
+`/llms.txt` lo resume para un modelo.
+
+## En internet
+
+Ponelo detrás de un proxy inverso con TLS (un Cloudflare Tunnel, Caddy, nginx).
+archivist reconoce una solicitud que pasó por el proxy (trae `CF-Connecting-IP`,
+`X-Forwarded-For` o `Forwarded`; la IP del cliente se lee solo si viene de un
+proxy de `ARCHIVIST_PROXIES`, loopback por defecto, como en Docker con
+`172.17.0.0/16`) y entonces: nunca la
+trata como red de confianza, registra cada token equivocado con la IP real
+(`archivist: auth failure from <ip>`, para fail2ban o CrowdSec), responde 429
+después de 10 intentos fallidos en 15 minutos, marca la cookie de sesión como
+`Secure`, manda HSTS y deja el video en casa salvo con
+`ARCHIVIST_PROXIED_VIDEO=on`. Leer, el progreso y la API funcionan igual que en
+casa. Más en [SECURITY.md](SECURITY.md).
 
 ## En el celular
 

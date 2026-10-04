@@ -89,12 +89,39 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 | `ARCHIVIST_TOKEN` | — | For the API (`Authorization: Bearer`) and the browser login. |
 | `ARCHIVIST_BACKUP_DIR` | — | A daily copy of the database (progress), the newest 14 kept. |
 | `ARCHIVIST_OWNER_NAME` | `Yo` | The first profile's name. More profiles are added in the UI. |
-| `ARCHIVIST_TRUSTED` | — | Networks that need no token: `loopback`, `tailscale`, `lan`, or CIDRs (`192.168.1.0/24`). Judged by the connection's address, never by headers. |
+| `ARCHIVIST_TRUSTED` | — | Networks that need no token: `loopback`, `tailscale`, `lan`, or CIDRs (`192.168.1.0/24`). Judged by the connection's address, never by headers, and never for a request that came through a reverse proxy. |
+| `ARCHIVIST_HOSTS` | — | More host names that reach it from a trusted network (beyond addresses, `localhost`, one-word names and `.ts.net`/`.local`/`.lan`). Anything else needs the token, which stops DNS rebinding. |
+| `ARCHIVIST_PROXIES` | `loopback` | Reverse proxies whose `CF-Connecting-IP` / `X-Forwarded-For` is believed for the client's address. In Docker, the proxy's network (`172.17.0.0/16`). Any request with those headers is untrusted either way. |
+| `ARCHIVIST_PROXIED_VIDEO` | off | Serve video to requests that came through the public proxy. Off by default: at home, video goes over the LAN or Tailscale. |
 
 ## API
 
 Everything the UI does goes through [the API](docs/api.md): works, units, pages, single frames,
-progress, events and resumable uploads. Tools get pages and frames, never clips.
+progress, events and resumable uploads. Tools get pages and frames, never clips. It is
+described in OpenAPI 3.1 at `/api/v1/openapi.json`.
+
+## For agents
+
+archivist is an MCP server at `/mcp` (Streamable HTTP, the same token). An agent can search the
+library, open a work, look at a page or a frame, and read or save where someone is:
+
+```sh
+claude mcp add --transport http archivist https://your-server/mcp --header "Authorization: Bearer $ARCHIVIST_TOKEN"
+```
+
+Tools: `search_library`, `list_works`, `get_work`, `get_progress`, `set_progress`, `get_page`,
+`get_frame`, `recent_events`, `list_profiles`. `/llms.txt` sums it up for a model.
+
+## On the internet
+
+Put it behind a reverse proxy that terminates TLS (a Cloudflare Tunnel, Caddy, nginx). archivist
+notices a proxied request (it carries `CF-Connecting-IP`, `X-Forwarded-For` or `Forwarded`; the
+client's address is read from a proxy listed in `ARCHIVIST_PROXIES`, loopback by default) and
+then: never treats it as a trusted network, logs
+each wrong token with the real client address (`archivist: auth failure from <ip>`, for
+fail2ban or CrowdSec), answers 429 after 10 wrong tokens in 15 minutes, marks the session cookie
+`Secure`, sends HSTS, and keeps video at home unless `ARCHIVIST_PROXIED_VIDEO=on`. Reading,
+progress and the API work as at home. See [SECURITY.md](SECURITY.md).
 
 ## On the phone
 
