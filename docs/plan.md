@@ -120,5 +120,12 @@ Sigue: varios usuarios (cada uno con su progreso), mover la biblioteca a `/srv` 
   cuando hay más de uno; en OPDS, el usuario elige el perfil. La base de la 0.2 se migró: su
   progreso pasó al dueño (copia previa en `~/backups/archivist/archivist-pre-0.3.0.db`).
 
-Sigue: mover la biblioteca a `/srv` en valensrv (un comando con sudo), y la API de páginas
-para Showrunner cuando no compartan disco.
+Sigue: la API de páginas para Showrunner cuando no compartan disco.
+
+## 2026-10-04: la biblioteca en `/srv`
+
+Los datos de VT-Showrunner, y con ellos la biblioteca de archivist, pasaron del disco del
+sistema a `/srv/vt-showrunner/data` (el SSD de 960 GB, 540 GB libres). Copia con rsync y una
+segunda pasada con checksums sin diferencias. `~/apps/VT-Showrunner/data` es ahora un enlace a
+esa carpeta, `SHOWRUNNER_DATA` y `ARCHIVIST_LIBRARY` apuntan ahí, y la copia vieja quedó en
+`~/apps/VT-Showrunner/data.moved-20261004` hasta confirmar que no hace falta.
