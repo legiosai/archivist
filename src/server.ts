@@ -362,9 +362,12 @@ export function createApp(cfg: Config): App {
     if (!w || !unit) throw new HttpError(404, "no cover");
     await sendImage(res, url, `cover:${version(unit)}`, async () => {
       if (unit.format === "video") {
+        // A few moments of the first act; the one with the most detail wins (a dark or flat frame
+        // compresses to almost nothing, so the JPEG's size is a fair measure).
         const file = library.resolve(unit.path);
         const pr = await probe(file);
-        return { type: "image/jpeg", data: await frame(file, Math.min(600, pr.duration * 0.1), cache) };
+        const shots = await Promise.all([0.08, 0.15, 0.22, 0.3].map((share) => frame(file, pr.duration * share, cache)));
+        return { type: "image/jpeg", data: shots.reduce((a, b) => (b.length > a.length ? b : a)) };
       }
       return (await openPages(cfg.library, unit, cache)).page(1);
     });

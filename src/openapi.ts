@@ -64,7 +64,7 @@ export function openapi(version: string, server?: string): Json {
       },
       "/api/v1/works/{kind}/{slug}": { get: op("works", "One work with its units and their progress", { parameters: [...WORK, PROFILE] },
         { 200: ok("The work", ref("WorkDetail")), 404: ok("Unknown work") }) },
-      "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the first page, or a frame at 10 % of the first video",
+      "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the first page, or the most detailed of a few frames from the first act of the first video",
         { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The cover") }) },
       "/api/v1/rescan": { post: op("works", "Read the folders again now") },
       "/api/v1/units/{kind}/{slug}/{unit}/pages": { get: op("units", "Page count", { parameters: UNIT },

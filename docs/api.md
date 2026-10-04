@@ -35,7 +35,7 @@ After 10 wrong tokens in 15 minutes from one address, that address gets `429` wi
 | `GET /api/v1/works` | Every work: `id, kind, type, title, year, ids, reading, units, finished, last, cover`. |
 | `GET /api/v1/works/:kind/:slug` | One work, plus `unitList` with each unit's progress. |
 | `POST /api/v1/works` | Create one: `{title, type, year?, originalTitle?, ids?, slug?}` → its folder and `work.yaml`. |
-| `GET /api/v1/works/:kind/:slug/cover` | An image: the first page, or a frame at 10 % of the first video. `?w=320` for a small copy. |
+| `GET /api/v1/works/:kind/:slug/cover` | An image: the first page, or the most detailed of a few frames from the first act of the first video. `?w=320` for a small copy. |
 | `POST /api/v1/rescan` | Read the folders again now (they are also read every 5 minutes and after an upload). |
 
 ## Units
