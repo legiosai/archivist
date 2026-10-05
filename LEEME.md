@@ -22,8 +22,10 @@ MIT
 
 </div>
 
-> **Estado: 0.1.** Lee, reproduce, recuerda y recibe subidas. Un solo dueño,
-> interfaz en castellano. Lo que sigue está en el [plan](docs/plan.md).
+> **Estado: 0.5.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
+> persona, OPDS para el celular y una API y un servidor MCP para herramientas. Interfaz en
+> castellano. El [plan](docs/plan.md) está completo; los cambios están en el
+> [changelog](CHANGELOG.md).
 
 ## Qué es
 

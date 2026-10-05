@@ -22,8 +22,9 @@ MIT
 
 </div>
 
-> **Status: 0.1.** It reads, plays, remembers and takes uploads. Single owner, Spanish UI first.
-> What comes next is in [the plan](docs/plan.md).
+> **Status: 0.5.** It reads, plays, remembers and takes uploads, with a profile for each person,
+> OPDS for phones and an API and MCP server for tools. Spanish UI first.
+> [The plan](docs/plan.md) is complete; what changed is in the [changelog](CHANGELOG.md).
 
 ## What it is
 
