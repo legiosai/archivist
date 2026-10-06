@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 — 2026-10-06
+
+- HDR video (a UHD Blu-ray transfer, PQ or HLG) no longer comes out grey and washed out: frames,
+  covers, thumbnails and the copy the player gets are tone-mapped to SDR BT.709. An HDR H.264 file
+  is converted instead of copied.
+- A film's or an episode's cover is the most detailed of four moments in the first act, not one
+  fixed frame that could land on black.
+
 ## 0.5.0 — 2026-10-04
 
 - Profiles up front: a browser that hasn't chosen one opens on "¿Quién está mirando?", and it
