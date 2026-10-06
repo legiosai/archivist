@@ -72,6 +72,8 @@ export interface Details {
   year: number | null;
   url: string | null;
   posterUrl: string | null;
+  /** A wide image (TMDB's backdrop, AniList's banner), for the top of a page. */
+  backdropUrl?: string | null;
 }
 
 export interface MetaRow {
@@ -79,8 +81,9 @@ export interface MetaRow {
   /** "id": from the yaml's ids; "auto": by title and year; "owner": picked by hand; "none": nothing found or turned off. */
   match: "id" | "auto" | "owner" | "none";
   details: Details | null;
-  /** The downloaded poster, under the cache folder. */
+  /** The downloaded poster and backdrop, under the cache folder. */
   posterFile: string | null;
+  backdropFile?: string | null;
   fetchedAt: string;
 }
 
@@ -156,7 +159,7 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, type TEXT NOT NULL,
         work_id TEXT NOT NULL, unit_key TEXT);
       CREATE TABLE IF NOT EXISTS meta (work_id TEXT PRIMARY KEY, match TEXT NOT NULL, details TEXT, poster_file TEXT,
-        fetched_at TEXT NOT NULL);
+        fetched_at TEXT NOT NULL, backdrop_file TEXT);
       CREATE TABLE IF NOT EXISTS tracks (profile TEXT NOT NULL, work_id TEXT NOT NULL, choice TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (profile, work_id));
       CREATE TABLE IF NOT EXISTS activity (profile TEXT NOT NULL, day TEXT NOT NULL, work_id TEXT NOT NULL, unit_key TEXT NOT NULL,
@@ -184,6 +187,8 @@ export class Store {
     if (!cols("events").includes("profile")) this.db.exec(`ALTER TABLE events ADD COLUMN profile TEXT;`);
     // 0.5: each profile picks its avatar.
     if (!cols("profiles").includes("hue")) this.db.exec(`ALTER TABLE profiles ADD COLUMN hue INTEGER; ALTER TABLE profiles ADD COLUMN glyph TEXT;`);
+    // 0.7: a wide image beside the poster.
+    if (cols("meta").length && !cols("meta").includes("backdrop_file")) this.db.exec(`ALTER TABLE meta ADD COLUMN backdrop_file TEXT;`);
   }
 
   // --- profiles ------------------------------------------------------------------------------
@@ -357,14 +362,15 @@ export class Store {
     const r = this.db.prepare("SELECT * FROM meta WHERE work_id = ?").get(workId) as Row | undefined;
     if (!r) return null;
     return { workId, match: String(r.match) as MetaRow["match"], details: r.details ? JSON.parse(String(r.details)) as Details : null,
-      posterFile: r.poster_file ? String(r.poster_file) : null, fetchedAt: String(r.fetched_at) };
+      posterFile: r.poster_file ? String(r.poster_file) : null, backdropFile: r.backdrop_file ? String(r.backdrop_file) : null,
+      fetchedAt: String(r.fetched_at) };
   }
 
   setMeta(row: Omit<MetaRow, "fetchedAt">, now = new Date()): void {
-    this.db.prepare(`INSERT INTO meta (work_id, match, details, poster_file, fetched_at) VALUES (?, ?, ?, ?, ?)
+    this.db.prepare(`INSERT INTO meta (work_id, match, details, poster_file, backdrop_file, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (work_id) DO UPDATE SET match = excluded.match, details = excluded.details, poster_file = excluded.poster_file,
-      fetched_at = excluded.fetched_at`)
-      .run(row.workId, row.match, row.details ? JSON.stringify(row.details) : null, row.posterFile, now.toISOString());
+      backdrop_file = excluded.backdrop_file, fetched_at = excluded.fetched_at`)
+      .run(row.workId, row.match, row.details ? JSON.stringify(row.details) : null, row.posterFile, row.backdropFile ?? null, now.toISOString());
   }
 
   forgetMeta(workId: string): void {

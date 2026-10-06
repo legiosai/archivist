@@ -67,7 +67,10 @@ export function openapi(version: string, server?: string): Json {
         { 200: ok("The work", ref("WorkDetail")), 404: ok("Unknown work") }) },
       "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the work's own poster file, else a poster from TMDB or AniList, "
         + "else the first page or the most detailed of a few frames from the first act of the first video",
-        { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The cover") }) },
+        { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640, 960 or 1280), cached.", { type: "integer" })] }, { 200: image("The cover") }) },
+      "/api/v1/works/{kind}/{slug}/backdrop": { get: op("works", "A wide image for the top of a page: TMDB's backdrop or AniList's banner, else a frame of the first video",
+        { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640, 960 or 1280), cached.", { type: "integer" })] },
+        { 200: image("The backdrop"), 404: ok("No backdrop (a book without metadata)") }) },
       "/api/v1/works/{kind}/{slug}/poster": {
         put: op("works", "Set the work's own poster: the body is a JPEG, PNG or WebP image (up to 25 MB), saved as poster.<ext> in its folder "
           + "(or <name>-poster.<ext> beside a single file)", { parameters: WORK, requestBody: { required: true, content: { "image/*": {
@@ -102,7 +105,7 @@ export function openapi(version: string, server?: string): Json {
       "/api/v1/units/{kind}/{slug}/{unit}/pages": { get: op("units", "Page count", { parameters: UNIT },
         { 200: ok("Count", { type: "object", properties: { count: { type: "integer" } } }) }) },
       "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}": { get: op("units", "One page (from 1), as stored or scaled with ?w=", {
-        parameters: [...UNIT, path("n", "Page number, from 1."), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The page"), 404: ok("No such page") }) },
+        parameters: [...UNIT, path("n", "Page number, from 1."), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640, 960 or 1280), cached.", { type: "integer" })] }, { 200: image("The page"), 404: ok("No such page") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/info": { get: op("units", "A video's running time, its audio tracks and subtitles, and whether it plays now",
         { parameters: [...UNIT, AUDIO] }, { 200: ok("Info", { type: "object", properties: { duration: { type: "number" }, ready: { type: "boolean" },
           allowed: { type: "boolean", description: "False through the public proxy unless ARCHIVIST_PROXIED_VIDEO is on." },
@@ -114,7 +117,7 @@ export function openapi(version: string, server?: string): Json {
             href: { type: "string" } } } } } }) }) },
       "/api/v1/units/{kind}/{slug}/{unit}/frame": { get: op("units", "One still at `t` seconds, as JPEG (never a clip)", {
         parameters: [...UNIT, query("t", "Seconds from the start.", { type: "number", minimum: 0 }),
-        query("at", "Or a share of the running time, 0 to 1.", { type: "number", minimum: 0, maximum: 1 }), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The frame") }) },
+        query("at", "Or a share of the running time, 0 to 1.", { type: "number", minimum: 0, maximum: 1 }), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640, 960 or 1280), cached.", { type: "integer" })] }, { 200: image("The frame") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/video": { get: op("units", "The video for the player, with HTTP ranges", { parameters: [...UNIT, AUDIO] },
         { 200: ok("Video", undefined), 206: ok("Partial"), 403: ok("Not served through the public proxy"), 409: ok("Still converting") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/prepare": { post: op("units", "Convert a video the browser can't play, or with another audio track (once, in the background)",
@@ -164,7 +167,7 @@ export function openapi(version: string, server?: string): Json {
           type: ref("WorkType"), title: { type: "string" }, year: { type: ["integer", "null"] }, originalTitle: { type: ["string", "null"] },
           ids: { type: "object" }, reading: { type: ["string", "null"], enum: ["rtl", "ltr", "vertical", null] },
           units: { type: "integer" }, finished: { type: "integer" }, last: { oneOf: [ref("Progress"), { type: "null" }] },
-          cover: { type: ["string", "null"] }, poster: { type: ["string", "null"], enum: ["file", "metadata", "auto", null],
+          cover: { type: ["string", "null"] }, backdrop: { type: ["string", "null"], description: "A wide image, if there is one." }, poster: { type: ["string", "null"], enum: ["file", "metadata", "auto", null],
             description: "Where the cover comes from." } } },
         WorkDetail: { allOf: [ref("Work"), { type: "object", properties: { unitList: { type: "array", items: ref("Unit") },
           details: { type: "object", description: "The yaml's overview, genres and credits first, then TMDB or AniList's.", properties: {

@@ -4,7 +4,7 @@ import { AuthError, hasProfileCookie } from "./api.ts";
 import { ProfilesProvider, useProfiles } from "./profiles.tsx";
 import { Palette } from "./pages/Palette.tsx";
 import { Picker } from "./pages/Picker.tsx";
-import { Library } from "./pages/Library.tsx";
+import { Catalog, Library } from "./pages/Library.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Player } from "./pages/Player.tsx";
 import { Profiles } from "./pages/Profiles.tsx";
@@ -42,6 +42,7 @@ function App({ onAuth }: { onAuth: () => void }) {
   if (view === "subir") return <Upload preset={id || null} onAuth={onAuth} />;
   if (view === "perfiles") return <Profiles onAuth={onAuth} />;
   if (view === "resumen") return <Year onAuth={onAuth} />;
+  if (view === "todo") return <Catalog key={window.location.hash} onAuth={onAuth} />;
   return <Library onAuth={onAuth} />;
 }
 

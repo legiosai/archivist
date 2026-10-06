@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0 — 2026-10-06
+
+- A new look. Home opens on a full-width picture of what you're in the middle of, with "Seguir"
+  going straight back to the page or the second; then a row per type. Videos without a poster of
+  their own show wide, as a frame, instead of a frame cropped tall. "Seguir" shows the very frame
+  or page where you stopped. The grid with filters moved to "Ver todo" (`#/todo`).
+- A work's page sits on its own wide picture too, with compact actions; a film in one file no
+  longer lists its one file.
+- The player has its own controls: the title on top, a scrubber that shows the frame under the
+  pointer, ten seconds back and forward, volume, the next episode, audio and subtitles,
+  fullscreen. They hide while it plays; keys: space or k, the arrows or j and l, f, m, c. On a
+  phone, a tap shows them and two taps on a side move ten seconds. Subtitles move up while the
+  controls show.
+- The reader's direction and double page live in a small menu instead of the browser's own select
+  and checkbox, and the page bar has buttons on both sides.
+- On a phone, the sections are a tab bar at the bottom.
+- `GET /api/v1/works/…/backdrop` (TMDB's backdrop, AniList's banner, or the best frame of the first
+  act) and `backdrop` on every work; `?w=` goes up to 1280.
+
 ## 0.6.0 — 2026-10-06
 
 - Posters: a work's own `poster.jpg` (or `folder.jpg`; `<film>-poster.jpg` beside a film) is its

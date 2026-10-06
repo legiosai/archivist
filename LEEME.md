@@ -22,7 +22,7 @@ MIT
 
 </div>
 
-> **Estado: 0.6.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
+> **Estado: 0.7.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
 > persona, portadas y datos de TMDB o AniList si los activás, un resumen del año, OPDS para el
 > celular y una API y un servidor MCP para herramientas. Interfaz en castellano. El [plan](docs/plan.md) está completo; los cambios están en el
 > [changelog](CHANGELOG.md).

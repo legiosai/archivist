@@ -221,17 +221,34 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
     return w.units.length ? { from: "auto", version: "a" } : null;
   }
 
+  /** A wide image for the top of a page: TMDB's backdrop or AniList's banner, else a frame of the first video. */
+  function backdropOf(w: Work): string | null {
+    const m = store.meta(w.id);
+    if (m?.backdropFile && existsSync(metadata.posterPath(m.backdropFile))) return `m${m.backdropFile.slice(0, 10)}`;
+    return w.units.some((u) => u.format === "video") ? "f" : null;
+  }
+
+  /** The most detailed of a few moments of the first act: a dark or flat frame compresses to almost nothing. */
+  async function bestFrame(unit: Unit): Promise<Buffer> {
+    const file = library.resolve(unit.path);
+    const pr = await probe(file);
+    const shots = await Promise.all([0.08, 0.15, 0.22, 0.3].map((share) => frame(file, pr.duration * share, cache)));
+    return shots.reduce((a, b) => (b.length > a.length ? b : a));
+  }
+
   function workView(w: Work, withUnits = false, profile = OWNER) {
     const progress = store.forWork(w.id, profile);
     const byUnit = new Map(progress.map((p) => [p.unitKey, p]));
     const last = progress.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
     const poster = posterOf(w);
+    const wide = backdropOf(w);
     const base = {
       id: w.id, slug: w.slug, kind: w.kind, type: w.type, title: w.title, year: w.year ?? null,
       originalTitle: w.originalTitle ?? null, ids: w.ids, reading: w.reading, units: w.units.length,
       finished: w.units.filter((u) => byUnit.get(u.key)?.finished).length, last,
       cover: poster ? `/api/v1/works/${w.id}/cover?v=${poster.version}` : null,
       poster: poster?.from ?? null,
+      backdrop: wide ? `/api/v1/works/${w.id}/backdrop?v=${wide}` : null,
     };
     if (!withUnits) return base;
     return { ...base, details: detailsOf(w), unitList: w.units.map((u) => unitView(w, u, byUnit.get(u.key) ?? null)) };
@@ -555,16 +572,22 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
     const unit = w.units[0];
     if (!unit) throw new HttpError(404, "no cover");
     await sendImage(res, url, `cover:${version(unit)}`, async () => {
-      if (unit.format === "video") {
-        // A few moments of the first act; the one with the most detail wins (a dark or flat frame
-        // compresses to almost nothing, so the JPEG's size is a fair measure).
-        const file = library.resolve(unit.path);
-        const pr = await probe(file);
-        const shots = await Promise.all([0.08, 0.15, 0.22, 0.3].map((share) => frame(file, pr.duration * share, cache)));
-        return { type: "image/jpeg", data: shots.reduce((a, b) => (b.length > a.length ? b : a)) };
-      }
+      if (unit.format === "video") return { type: "image/jpeg", data: await bestFrame(unit) };
       return (await openPages(cfg.library, unit, cache)).page(1);
     });
+  });
+
+  route("GET", "/api/v1/works/:kind/:slug/backdrop", async (_q, res, p, url) => {
+    const w = workOf(p);
+    const m = store.meta(w.id);
+    if (m?.backdropFile && existsSync(metadata.posterPath(m.backdropFile))) {
+      const file = metadata.posterPath(m.backdropFile);
+      await sendImage(res, url, `wide:${m.backdropFile}`, async () => ({ type: "image/jpeg", data: readFileSync(file) }));
+      return;
+    }
+    const unit = w.units.find((u) => u.format === "video");
+    if (!unit) throw new HttpError(404, "no backdrop");
+    await sendImage(res, url, `wide:${version(unit)}`, async () => ({ type: "image/jpeg", data: await bestFrame(unit) }));
   });
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/pages", async (_q, res, p) => {

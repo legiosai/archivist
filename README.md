@@ -22,7 +22,7 @@ MIT
 
 </div>
 
-> **Status: 0.6.** It reads, plays, remembers and takes uploads, with a profile for each person,
+> **Status: 0.7.** It reads, plays, remembers and takes uploads, with a profile for each person,
 > posters and details from TMDB or AniList if you turn them on, a year in review, OPDS for phones
 > and an API and MCP server for tools. Spanish UI first.
 > [The plan](docs/plan.md) is complete; what changed is in the [changelog](CHANGELOG.md).

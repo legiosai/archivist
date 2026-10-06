@@ -60,7 +60,7 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
   }, [id, onAuth]);
   if (error) return <><Header /><main><p className="notice bad">{error}</p></main></>;
   if (!work) return (
-    <><Header /><main><div className="work-head"><div className="skeleton poster" /><div><div className="skeleton line" /><div className="skeleton line" /></div></div></main></>
+    <><Header /><div className="work-stage"><div className="work-stage-inner"><div className="skeleton poster work-cover" /><div className="grow"><div className="skeleton line" /><div className="skeleton line" /></div></div></div></>
   );
 
   const next = continueUnit(work);
@@ -71,23 +71,28 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
   const started = next?.progress && !next.progress.finished;
   const share = work.units ? (work.finished / work.units) * 100 : 0;
   const d = work.details;
+  // A film in one file needs no list of its one file: the button above plays it.
+  const single = work.type === "film" && work.unitList.length === 1;
 
   return (
     <>
-      {work.cover && <div className="backdrop"><div style={{ backgroundImage: `url("${thumb(work.cover, 480)}")` }} /></div>}
       <Header />
-      <main>
-        <div className="work-head">
+      <section className={`work-stage ${work.backdrop ? "" : "bookish"}`}>
+        <div className="stage-art" aria-hidden="true">
+          {work.backdrop ? <Img src={thumb(work.backdrop, 1280)} />
+            : work.cover && <div className="stage-blur" style={{ backgroundImage: `url("${thumb(work.cover, 480)}")` }} />}
+        </div>
+        <div className="work-stage-inner">
           {work.cover ? <Img className="work-cover" src={thumb(work.cover, 480)} fallback={<div className="work-cover placeholder">{work.title.slice(0, 1)}</div>} />
             : <div className="work-cover placeholder">{work.title.slice(0, 1)}</div>}
-          <div>
+          <div className="grow">
             <span className="eyebrow">{TYPE_LABEL[work.type]}</span>
             <h1>{work.title}</h1>
             {work.originalTitle && work.originalTitle !== work.title && <p className="original">{work.originalTitle}</p>}
             <div className="chips">
               {work.year && <span className="chip">{work.year}</span>}
               {d.runtime && <span className="chip"><Icon name="clock" className="icon tiny" />{minutes(d.runtime)}{work.type !== "film" && video ? " por episodio" : ""}</span>}
-              <span className="chip">{work.units} {video ? (work.type === "film" ? "archivo" : "episodios") : "tomos"}</span>
+              <span className="chip">{work.units} {video ? (work.type === "film" ? (work.units === 1 ? "archivo" : "archivos") : work.units === 1 ? "episodio" : "episodios") : work.units === 1 ? "tomo" : "tomos"}</span>
               {seasons.length > 1 && <span className="chip">{seasons.length} temporadas</span>}
               {work.reading && !video && <span className="chip">{work.reading === "rtl" ? "Derecha a izquierda" : work.reading === "vertical" ? "Vertical" : "Izquierda a derecha"}</span>}
             </div>
@@ -100,21 +105,27 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
                 <div className="bar"><div style={{ width: `${share}%` }} /></div>
               </div>
             )}
-            <div className="row">
+            <div className="row actions">
               {next && (
                 <a className="btn primary lg" href={unitHref(work, next)}>
                   <Icon name={video ? "play" : "book"} />
-                  {started ? "Seguir" : video ? "Ver" : "Leer"} · {next.label}
+                  {started ? "Seguir" : video ? "Ver" : "Leer"}{single ? "" : ` · ${next.label}`}
                 </a>
               )}
-              <a className="btn" href={`#/subir/${work.id}`}><Icon name="upload" /> Subir archivos</a>
-              <button onClick={() => setEditing(true)}><Icon name="pencil" /> Portada y datos</button>
+              <a className="btn lg glass round-sm" href={`#/subir/${work.id}`} title="Subir archivos" aria-label="Subir archivos">
+                <Icon name="upload" /><span className="label">Subir</span>
+              </a>
+              <button className="lg glass round-sm" onClick={() => setEditing(true)} title="Portada y datos" aria-label="Portada y datos">
+                <Icon name="pencil" /><span className="label">Portada y datos</span>
+              </button>
             </div>
             {d.source && (
               <p className="faint small source-line">Datos de <a href={d.url ?? "#"} target="_blank" rel="noreferrer noopener">{d.source === "tmdb" ? "TMDB" : "AniList"}</a></p>
             )}
           </div>
         </div>
+      </section>
+      <main className="work-body">
 
         {work.unitList.length === 0 && (
           <div className="empty"><p className="display">Todavía sin archivos</p><p><a href={`#/subir/${work.id}`}>Subir los primeros</a></p></div>
@@ -128,8 +139,8 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
             ))}
           </div>
         )}
-        {work.unitList.length > 0 && seasons.length <= 1 && <h2>{video ? (work.type === "film" ? "Película" : "Episodios") : "Tomos"}</h2>}
-        <ul className={`units ${video ? "episodes" : "volumes"}`}>
+        {work.unitList.length > 0 && seasons.length <= 1 && !single && <h2>{video ? (work.type === "film" ? "Archivos" : "Episodios") : "Tomos"}</h2>}
+        {!single && <ul className={`units ${video ? "episodes" : "volumes"}`}>
           {units.map((u, i) => (
             <li key={u.key}>
               <a className={`unit ${next?.key === u.key ? "current" : ""}`} href={unitHref(work, u)} style={{ "--i": i } as React.CSSProperties}>
@@ -146,7 +157,7 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
               </a>
             </li>
           ))}
-        </ul>
+        </ul>}
       </main>
       {editing && <EditSheet work={work} onChange={setWork} onClose={() => setEditing(false)} onAuth={onAuth} />}
     </>

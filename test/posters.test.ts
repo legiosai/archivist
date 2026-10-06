@@ -28,7 +28,7 @@ function fakeFetch(asked: string[] = []) {
     if (url.includes("/movie/1?")) {
       const es = url.includes("language=es-AR");
       return ok({ id: 1, title: "Los otros", overview: es ? "" : "Grace, in a dark house…", runtime: 104, release_date: "2001-08-02",
-        poster_path: "/others.jpg", genres: [{ name: "Terror" }, { name: "Misterio" }],
+        poster_path: "/others.jpg", backdrop_path: "/wide.jpg", genres: [{ name: "Terror" }, { name: "Misterio" }],
         credits: { crew: [{ job: "Director", name: "Alejandro Amenábar" }, { job: "Writer", name: "X" }] } });
     }
     if (url.startsWith("https://image.tmdb.org/")) return new Response(JPEG, { headers: { "content-type": "image/jpeg" } });
@@ -133,6 +133,20 @@ async function start(files: Record<string, string | Buffer>, metadata = false) {
   return { base, library };
 }
 
+describe("upgrading", () => {
+  it("opens a 0.6 database, whose metadata had no backdrop", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "up-")), "a.db");
+    const old = new Store(file);
+    old.db.exec("DROP TABLE meta; CREATE TABLE meta (work_id TEXT PRIMARY KEY, match TEXT NOT NULL, details TEXT, poster_file TEXT, fetched_at TEXT NOT NULL);");
+    old.db.prepare("INSERT INTO meta VALUES ('video/x', 'none', NULL, NULL, '2026-10-06T00:00:00Z')").run();
+    old.close();
+    const s = new Store(file);
+    expect(s.meta("video/x")).toMatchObject({ match: "none", backdropFile: null });
+    s.setMeta({ workId: "video/y", match: "auto", details: null, posterFile: "p.jpg", backdropFile: "w.jpg" });
+    expect(s.meta("video/y")!.backdropFile).toBe("w.jpg");
+  });
+});
+
 describe("posters and metadata through the API", () => {
   it("takes a poster upload, serves it as the cover, and gives the cover back on delete", async () => {
     const { base, library } = await start({ "pages/berserk/tomo-01.cbz": makeZip([["001.png", PNG]]),
@@ -161,10 +175,16 @@ describe("posters and metadata through the API", () => {
     const film = await (await fetch(`${base}/api/v1/works/video/los-otros`)).json();
     expect(film.details).toMatchObject({ source: "tmdb", match: "auto", runtime: 104, credits: ["Alejandro Amenábar"] });
     expect(film.poster).toBe("metadata");
+    expect(film.backdrop).toMatch(/^\/api\/v1\/works\/video\/los-otros\/backdrop\?v=m/);
+    const wide = await fetch(`${base}${film.backdrop}`);
+    expect(wide.status).toBe(200);
+    expect(Buffer.from(await wide.arrayBuffer()).equals(JPEG)).toBe(true);
     const manga = await (await fetch(`${base}/api/v1/works/pages/berserk`)).json();
     expect(manga.details).toMatchObject({ source: "anilist", match: "auto", genres: ["Action", "Drama"] });
     const comic = await (await fetch(`${base}/api/v1/works/pages/tintin`)).json();
     expect(comic.details.lookup).toBeNull();
+    expect(comic.backdrop).toBeNull();                                    // a book with nothing wide to show
+    expect((await fetch(`${base}/api/v1/works/pages/tintin/backdrop`)).status).toBe(404);
     expect((await fetch(`${base}/api/v1/works/pages/tintin/meta/search`)).status).toBe(400);
     const found = await (await fetch(`${base}/api/v1/works/video/los-otros/meta/search?q=otros`)).json();
     expect(found.results.map((c: { extId: string }) => c.extId)).toEqual(["movie/1", "movie/2"]);

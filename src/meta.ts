@@ -33,6 +33,7 @@ type Kind = { source: "tmdb"; kind: "movie" | "tv" } | { source: "anilist"; kind
 
 const TMDB = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w780";
+const TMDB_WIDE = "https://image.tmdb.org/t/p/w1280";
 const ANILIST = "https://graphql.anilist.co";
 const LANGS = ["es-AR", "es-ES", "en-US"];
 
@@ -105,7 +106,7 @@ export class Metadata {
   private async tmdbDetails(kind: "movie" | "tv", id: string): Promise<Details> {
     type Res = { id: number; title?: string; name?: string; overview?: string; genres?: { name: string }[]; runtime?: number;
       episode_run_time?: number[]; release_date?: string; first_air_date?: string; poster_path?: string | null;
-      created_by?: { name: string }[]; credits?: { crew?: { job: string; name: string }[] } };
+      backdrop_path?: string | null; created_by?: { name: string }[]; credits?: { crew?: { job: string; name: string }[] } };
     // The overview in Spanish when TMDB has it, else in English; everything else from the first answer.
     const r: Res = await this.tmdb<Res>(`/${kind}/${id}`, { language: LANGS[0]!, append_to_response: "credits" });
     for (const language of LANGS.slice(1)) {
@@ -121,6 +122,7 @@ export class Metadata {
       genres: (r.genres ?? []).map((g) => g.name), credits: [...new Set(credits)].slice(0, 4),
       runtime: r.runtime || r.episode_run_time?.[0] || null, year: yearOf(r.release_date ?? r.first_air_date),
       url: `https://www.themoviedb.org/${kind}/${r.id}`, posterUrl: r.poster_path ? `${TMDB_IMG}${r.poster_path}` : null,
+      backdropUrl: r.backdrop_path ? `${TMDB_WIDE}${r.backdrop_path}` : null,
     };
   }
 
@@ -137,7 +139,7 @@ export class Metadata {
 
   // --- AniList ------------------------------------------------------------------------------------
   private static readonly MEDIA = `id siteUrl title { romaji english native } description(asHtml: false) genres
-    coverImage { extraLarge } startDate { year } duration studios(isMain: true) { nodes { name } }
+    coverImage { extraLarge } bannerImage startDate { year } duration studios(isMain: true) { nodes { name } }
     staff(perPage: 6, sort: RELEVANCE) { edges { role node { name { full } } } }`;
 
   private async anilist<T>(query: string, variables: Record<string, unknown>): Promise<T> {
@@ -151,7 +153,7 @@ export class Metadata {
 
   private static fromAnilist(kind: "anime" | "manga", m: {
     id: number; siteUrl?: string; title?: { romaji?: string; english?: string; native?: string }; description?: string; genres?: string[];
-    coverImage?: { extraLarge?: string }; startDate?: { year?: number }; duration?: number;
+    coverImage?: { extraLarge?: string }; bannerImage?: string | null; startDate?: { year?: number }; duration?: number;
     studios?: { nodes?: { name: string }[] }; staff?: { edges?: { role: string; node: { name: { full: string } } }[] };
   }): Candidate {
     const credits = kind === "anime"
@@ -161,7 +163,8 @@ export class Metadata {
       source: "anilist", extId: `${kind}/${m.id}`, title: m.title?.english || m.title?.romaji || null,
       overview: stripHtml(m.description), genres: m.genres ?? [], credits: [...new Set(credits)].slice(0, 3),
       runtime: kind === "anime" ? m.duration || null : null, year: m.startDate?.year ?? null, url: m.siteUrl ?? null,
-      posterUrl: m.coverImage?.extraLarge ?? null, alt: [m.title?.romaji, m.title?.native].filter((t): t is string => !!t),
+      posterUrl: m.coverImage?.extraLarge ?? null, backdropUrl: m.bannerImage ?? null,
+      alt: [m.title?.romaji, m.title?.native].filter((t): t is string => !!t),
     };
   }
 
@@ -229,7 +232,8 @@ export class Metadata {
 
   private async keep(w: Work, match: MetaRow["match"], details: Details | null): Promise<MetaRow> {
     const posterFile = details ? await this.poster(details.posterUrl).catch(() => null) : null;
-    this.store.setMeta({ workId: w.id, match, details, posterFile });
+    const backdropFile = details?.backdropUrl ? await this.poster(details.backdropUrl).catch(() => null) : null;
+    this.store.setMeta({ workId: w.id, match, details, posterFile, backdropFile });
     return this.store.meta(w.id)!;
   }
 

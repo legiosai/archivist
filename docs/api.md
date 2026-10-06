@@ -36,6 +36,7 @@ After 10 wrong tokens in 15 minutes from one address, that address gets `429` wi
 | `GET /api/v1/works/:kind/:slug` | One work, plus `unitList` with each unit's progress and `details`: `{overview, genres, credits, runtime, source, url, extId, match, lookup}`. The yaml's own words win over TMDB's or AniList's. |
 | `POST /api/v1/works` | Create one: `{title, type, year?, originalTitle?, ids?, slug?}` → its folder and `work.yaml`. |
 | `GET /api/v1/works/:kind/:slug/cover` | An image: the work's own poster file, else one from TMDB or AniList, else the first page or the most detailed of a few frames from the first act of the first video. `?w=320` for a small copy. |
+| `GET /api/v1/works/:kind/:slug/backdrop` | A wide image for the top of a page: TMDB's backdrop or AniList's banner, else a frame of the first video; 404 for a book without metadata. `?w=` for a smaller copy. |
 | `PUT /api/v1/works/:kind/:slug/poster` | The body is a JPEG, PNG or WebP (up to 25 MB): saved as `poster.<ext>` in the work's folder, or `<name>-poster.<ext>` beside a single file. |
 | `POST /api/v1/works/:kind/:slug/poster/frame` | `{at, unit?}`: the poster from a frame, `at` a share of the running time. |
 | `DELETE /api/v1/works/:kind/:slug/poster` | Removes the work's own poster file. |
@@ -70,7 +71,7 @@ in its yaml, else by title and year, kept only when both agree.
 Tools get pages and single frames. There is no endpoint that cuts a clip, on purpose
 ([SOUL.md](../SOUL.md)).
 
-`?w=` snaps to 160, 320, 480, 640 or 960 pixels wide; each copy is made once and kept in the
+`?w=` snaps to 160, 320, 480, 640, 960 or 1280 pixels wide; each copy is made once and kept in the
 cache folder.
 
 ## OPDS (readers on the phone)

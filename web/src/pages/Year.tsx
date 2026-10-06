@@ -49,7 +49,7 @@ export function Year({ onAuth }: { onAuth: () => void }) {
 
   return (
     <>
-      <Header />
+      <Header active="year" />
       <main className="year">
         <section className="year-hero">
           <Avatar profile={me} size="lg" />

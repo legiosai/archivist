@@ -55,22 +55,31 @@ function ProfileMenu() {
   );
 }
 
-export function Header({ active }: { active?: "library" | "upload" | "profiles" }) {
+export function Header({ active }: { active?: "library" | "upload" | "profiles" | "year" }) {
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   return (
-    <div className="top-wrap">
-      <header className="top">
-        <a className="brand" href="#/"><Mark />archivist</a>
-        <nav>
-          <button className="search-btn" onClick={openSearch} title="Buscar">
-            <Icon name="search" /><span className="label">Buscar</span><kbd className="label">{mac ? "⌘" : "Ctrl"} K</kbd>
-          </button>
-          <a href="#/" className={active === "library" ? "on" : ""}><Icon name="library" /><span className="label">Biblioteca</span></a>
-          <a href="#/subir" className={active === "upload" ? "on" : ""}><Icon name="upload" /><span className="label">Subir</span></a>
-          <ProfileMenu />
-        </nav>
-      </header>
-    </div>
+    <>
+      <div className="top-wrap">
+        <header className="top">
+          <a className="brand" href="#/"><Mark />archivist</a>
+          <nav>
+            <button className="search-btn wide-only" onClick={openSearch} title="Buscar">
+              <Icon name="search" /><span className="label">Buscar</span><kbd className="label">{mac ? "⌘" : "Ctrl"} K</kbd>
+            </button>
+            <a href="#/" className={`wide-only ${active === "library" ? "on" : ""}`}><Icon name="library" /><span className="label">Biblioteca</span></a>
+            <a href="#/subir" className={`wide-only ${active === "upload" ? "on" : ""}`}><Icon name="upload" /><span className="label">Subir</span></a>
+            <ProfileMenu />
+          </nav>
+        </header>
+      </div>
+      {/* On a phone the sections sit at the bottom, under the thumb. */}
+      <nav className="tabbar" aria-label="Secciones">
+        <a href="#/" className={active === "library" ? "on" : ""}><Icon name="library" /><span>Inicio</span></a>
+        <button onClick={openSearch}><Icon name="search" /><span>Buscar</span></button>
+        <a href="#/subir" className={active === "upload" ? "on" : ""}><Icon name="upload" /><span>Subir</span></a>
+        <a href="#/resumen" className={active === "year" ? "on" : ""}><Icon name="calendar" /><span>Tu año</span></a>
+      </nav>
+    </>
   );
 }
 

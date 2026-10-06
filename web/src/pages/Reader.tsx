@@ -28,6 +28,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   const [mode, setMode] = useState<Mode>("rtl");
   const [double, setDouble] = useState(false);
   const [chrome, setChrome] = useState(true);
+  const [settings, setSettings] = useState(false);
   const [error, setError] = useState("");
   const startAt = Number(useQuery("p") ?? 0);
   const strip = useRef<HTMLDivElement>(null);
@@ -135,16 +136,29 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   return (
     <div className={`reader ${chrome ? "" : "bare"}`}>
       <div className="reader-bar">
-        <a className="back" href={`#/w/${id}`}><Icon name="back" /><span>{work.title}</span></a>
-        <span className="pill">{unit?.label} · {lastShown > page ? `${page}-${lastShown}` : page} / {count}</span>
-        <div className="row">
-          <select value={mode} onChange={(e) => setModeSaved(e.target.value as Mode)} aria-label="Sentido de lectura">
-            <option value="rtl">Derecha a izquierda</option>
-            <option value="ltr">Izquierda a derecha</option>
-            <option value="vertical">Vertical</option>
-          </select>
-          {mode !== "vertical" && (
-            <label className="check small"><input type="checkbox" checked={double} onChange={(e) => setDoubleSaved(e.target.checked)} /> Doble</label>
+        <a className="back" href={`#/w/${id}`} title="Volver a la obra"><Icon name="back" /><span>{work.title}</span></a>
+        <span className="pill">{unit?.label}</span>
+        <div className="menu-wrap">
+          <button className={`ctl ${settings ? "on" : ""}`} onClick={() => setSettings(!settings)} aria-haspopup="dialog" aria-expanded={settings} title="Cómo leer">
+            <Icon name="sliders" />
+          </button>
+          {settings && (
+            <div className="menu reading" role="dialog" aria-label="Cómo leer">
+              <div className="menu-head">Sentido</div>
+              <div className="seg" role="radiogroup" aria-label="Sentido de lectura">
+                {([["rtl", "Derecha a izquierda", "Manga"], ["ltr", "Izquierda a derecha", "Cómic"], ["vertical", "Vertical", "Webtoon"]] as const).map(([m, label, hint]) => (
+                  <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => setModeSaved(m)}>
+                    <strong>{label}</strong><span>{hint}</span>
+                  </button>
+                ))}
+              </div>
+              {mode !== "vertical" && (
+                <button className="menu-item toggle" role="switch" aria-checked={double} onClick={() => setDoubleSaved(!double)}>
+                  <span>De a dos páginas</span><span className={`switch ${double ? "on" : ""}`} aria-hidden="true" />
+                </button>
+              )}
+              <p className="faint small menu-note">Se recuerda para esta obra, en este navegador.</p>
+            </div>
           )}
         </div>
         <div className="reader-progress"><div style={{ width: `${(lastShown / Math.max(1, count)) * 100}%` }} /></div>
@@ -164,8 +178,12 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
       )}
       {mode !== "vertical" && (
         <div className="reader-foot">
+          <button className="ctl" onClick={mode === "rtl" ? forward : backward} aria-label={mode === "rtl" ? "Página siguiente" : "Página anterior"}><Icon name="back" /></button>
           <input type="range" min={1} max={count} value={page} dir={mode === "rtl" ? "rtl" : "ltr"}
-                 onChange={(e) => setPage(Number(e.target.value))} aria-label="Página" />
+                 onChange={(e) => setPage(Number(e.target.value))} aria-label="Página"
+                 style={{ "--fill": `${((page - 1) / Math.max(1, count - 1)) * 100}%` } as React.CSSProperties} />
+          <button className="ctl" onClick={mode === "rtl" ? backward : forward} aria-label={mode === "rtl" ? "Página anterior" : "Página siguiente"}><Icon name="next" /></button>
+          <span className="page-count">{lastShown > page ? `${page}–${lastShown}` : page} <span className="faint">/ {count}</span></span>
           {page + step > count && nextUnit && <a className="btn primary" href={`#/r/${id}/${nextUnit.key}?p=1`}>Seguir con {nextUnit.label}</a>}
         </div>
       )}

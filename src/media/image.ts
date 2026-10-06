@@ -28,7 +28,7 @@ export async function scaleDown(data: Buffer, type: string, maxWidth: number): P
  * the cache folder. `key` names the source and its version (path and mtime); widths snap to a few
  * sizes so a client can't fill the disk with one copy per pixel.
  */
-export const THUMB_WIDTHS = [160, 320, 480, 640, 960];
+export const THUMB_WIDTHS = [160, 320, 480, 640, 960, 1280];
 
 export function thumbWidth(asked: string | null): number {
   const w = Number(asked);

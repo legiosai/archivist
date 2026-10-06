@@ -27,6 +27,8 @@ export interface WorkSummary {
   cover: string | null;
   /** Where the cover comes from: the work's own poster file, TMDB or AniList, or a frame or first page. */
   poster: "file" | "metadata" | "auto" | null;
+  /** A wide image (TMDB's backdrop, AniList's banner, or a frame), if there is one. */
+  backdrop: string | null;
 }
 
 export interface Details {
