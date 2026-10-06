@@ -145,6 +145,7 @@ export function Library({ onAuth }: { onAuth: () => void }) {
             <div className="stat"><strong>{works.length}</strong><span>obras</span></div>
             <div className="stat"><strong>{works.reduce((n, w) => n + w.units, 0)}</strong><span>tomos y episodios</span></div>
             <div className="stat"><strong>{finishedUnits}</strong><span>terminados</span></div>
+            <a className="stat-link" href="#/resumen"><Icon name="calendar" /> Tu año <Icon name="next" /></a>
           </div>
         )}
 

@@ -38,6 +38,9 @@ function ProfileMenu() {
             </button>
           ))}
           <div className="menu-sep" />
+          <a role="menuitem" className="menu-item" href="#/resumen" onClick={() => setShown(false)}>
+            <Icon name="calendar" /><span>Tu año</span>
+          </a>
           <a role="menuitem" className="menu-item" href="#/perfiles" onClick={() => setShown(false)}>
             <Icon name="users" /><span>Administrar perfiles</span>
           </a>

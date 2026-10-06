@@ -11,6 +11,7 @@ import { Profiles } from "./pages/Profiles.tsx";
 import { Reader } from "./pages/Reader.tsx";
 import { Upload } from "./pages/Upload.tsx";
 import { WorkPage } from "./pages/WorkPage.tsx";
+import { Year } from "./pages/Year.tsx";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/fraunces/opsz.css";
 import "@fontsource-variable/fraunces/opsz-italic.css";
@@ -40,6 +41,7 @@ function App({ onAuth }: { onAuth: () => void }) {
   if (view === "v" && id && unit) return <Player id={id} unitKey={unit} onAuth={onAuth} />;
   if (view === "subir") return <Upload preset={id || null} onAuth={onAuth} />;
   if (view === "perfiles") return <Profiles onAuth={onAuth} />;
+  if (view === "resumen") return <Year onAuth={onAuth} />;
   return <Library onAuth={onAuth} />;
 }
 

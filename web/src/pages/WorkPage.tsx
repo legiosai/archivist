@@ -1,7 +1,22 @@
 import { useEffect, useState } from "react";
-import { AuthError, TYPE_LABEL, api, clock, unitPath, type UnitView, type WorkDetail } from "../api.ts";
+import { AuthError, TYPE_LABEL, api, clock, minutes, unitPath, type UnitView, type WorkDetail } from "../api.ts";
 import { Icon } from "../icons.tsx";
+import { EditSheet } from "./Edit.tsx";
 import { Header, Img, thumb } from "./parts.tsx";
+
+/** Who made it, by what the work is: a film's director, a series' creators, an anime's studio, a book's author. */
+const CREDIT: Record<WorkDetail["type"], string> = { film: "Dirección", series: "Creación", anime: "Estudio", manga: "Autoría", comic: "Autoría" };
+
+function Overview({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 320;
+  return (
+    <div className="overview">
+      <p className={long && !open ? "clamped" : ""}>{text}</p>
+      {long && <button className="link" onClick={() => setOpen(!open)}>{open ? "Menos" : "Más"}</button>}
+    </div>
+  );
+}
 
 export function unitHref(work: WorkDetail, u: UnitView): string {
   return `#/${u.format === "video" ? "v" : "r"}/${work.id}/${u.key}`;
@@ -38,6 +53,7 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
   const [work, setWork] = useState<WorkDetail | null>(null);
   const [error, setError] = useState("");
   const [season, setSeason] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
   useEffect(() => {
     api<WorkDetail>(`/api/v1/works/${id}`).then(setWork)
       .catch((e) => (e instanceof AuthError ? onAuth() : setError(String(e.message))));
@@ -54,6 +70,7 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
   const video = work.kind === "video";
   const started = next?.progress && !next.progress.finished;
   const share = work.units ? (work.finished / work.units) * 100 : 0;
+  const d = work.details;
 
   return (
     <>
@@ -69,10 +86,14 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
             {work.originalTitle && work.originalTitle !== work.title && <p className="original">{work.originalTitle}</p>}
             <div className="chips">
               {work.year && <span className="chip">{work.year}</span>}
+              {d.runtime && <span className="chip"><Icon name="clock" className="icon tiny" />{minutes(d.runtime)}{work.type !== "film" && video ? " por episodio" : ""}</span>}
               <span className="chip">{work.units} {video ? (work.type === "film" ? "archivo" : "episodios") : "tomos"}</span>
               {seasons.length > 1 && <span className="chip">{seasons.length} temporadas</span>}
               {work.reading && !video && <span className="chip">{work.reading === "rtl" ? "Derecha a izquierda" : work.reading === "vertical" ? "Vertical" : "Izquierda a derecha"}</span>}
             </div>
+            {d.genres.length > 0 && <p className="genres">{d.genres.join(" · ")}</p>}
+            {d.credits.length > 0 && <p className="credits"><span className="faint">{CREDIT[work.type]}</span> {d.credits.join(", ")}</p>}
+            {d.overview && <Overview text={d.overview} />}
             {work.units > 0 && (
               <div className="progress-line">
                 <div className="spread"><span>{work.finished} de {work.units} {video ? "vistos" : "leídos"}</span><span>{Math.round(share)} %</span></div>
@@ -87,7 +108,11 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
                 </a>
               )}
               <a className="btn" href={`#/subir/${work.id}`}><Icon name="upload" /> Subir archivos</a>
+              <button onClick={() => setEditing(true)}><Icon name="pencil" /> Portada y datos</button>
             </div>
+            {d.source && (
+              <p className="faint small source-line">Datos de <a href={d.url ?? "#"} target="_blank" rel="noreferrer noopener">{d.source === "tmdb" ? "TMDB" : "AniList"}</a></p>
+            )}
           </div>
         </div>
 
@@ -123,6 +148,7 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
           ))}
         </ul>
       </main>
+      {editing && <EditSheet work={work} onChange={setWork} onClose={() => setEditing(false)} onAuth={onAuth} />}
     </>
   );
 }

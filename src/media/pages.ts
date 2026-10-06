@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { promisify } from "node:util";
-import { IMAGE_EXT, naturalCompare, type Unit } from "../library/scan.ts";
+import { IMAGE_EXT, isPosterName, naturalCompare, type Unit } from "../library/scan.ts";
 import { readZipEntry, readZipIndex, type ZipEntry } from "./zip.ts";
 
 const run = promisify(execFile);
@@ -32,7 +32,7 @@ const isImage = (name: string) => IMAGE_EXT.has(extname(name).toLowerCase());
 
 function folderSource(dir: string): PageSource {
   const files = readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isFile() && !d.name.startsWith(".") && isImage(d.name))
+    .filter((d) => d.isFile() && !d.name.startsWith(".") && isImage(d.name) && !isPosterName(d.name))
     .map((d) => d.name)
     .sort(naturalCompare);
   return {

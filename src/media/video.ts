@@ -12,14 +12,32 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/** One audio or subtitle stream: `n` counts within its kind (0:a:n, 0:s:n). */
+export interface Track {
+  n: number;
+  codec: string;
+  lang: string | null;
+  title: string | null;
+  default: boolean;
+  channels?: number;
+  forced?: boolean;
+  /** Subtitles only: text the browser can show (SRT, ASS, WebVTT, mov_text), not pictures (PGS, VobSub). */
+  text?: boolean;
+}
+
 export interface Probe {
   container: string;
   video: string | null;
+  /** The first audio stream's codec. */
   audio: string | null;
   duration: number;
   /** PQ or HLG (a UHD Blu-ray transfer): frames and conversions are tone-mapped to SDR. */
   hdr?: boolean;
+  audios?: Track[];
+  subs?: Track[];
 }
+
+const TEXT_SUBS = new Set(["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"]);
 
 const HDR_TRANSFERS = new Set(["smpte2084", "arib-std-b67"]);
 /** HDR to SDR BT.709. Read as is, an HDR picture comes out grey and washed out; mobius keeps the brightness. */
@@ -38,35 +56,53 @@ export async function probe(file: string): Promise<Probe> {
   const hit = probes.get(file);
   if (hit && hit.mtime === mtime) return hit.probe;
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries",
-    "stream=codec_type,codec_name,color_transfer:format=format_name,duration", "-of", "json", file]);
-  const data = JSON.parse(stdout) as { streams?: { codec_type: string; codec_name: string; color_transfer?: string }[];
-    format?: { format_name?: string; duration?: string } };
+    "stream=codec_type,codec_name,color_transfer,channels:stream_tags=language,title:stream_disposition=default,forced"
+    + ":format=format_name,duration", "-of", "json", file]);
+  type Stream = { codec_type: string; codec_name: string; color_transfer?: string; channels?: number;
+    tags?: { language?: string; title?: string }; disposition?: { default?: number; forced?: number } };
+  const data = JSON.parse(stdout) as { streams?: Stream[]; format?: { format_name?: string; duration?: string } };
   const streams = data.streams ?? [];
   const video = streams.find((s) => s.codec_type === "video");
+  const track = (s: Stream, n: number): Track => ({
+    n, codec: s.codec_name ?? "", lang: s.tags?.language && s.tags.language !== "und" ? s.tags.language.toLowerCase() : null,
+    title: s.tags?.title?.trim() || null, default: s.disposition?.default === 1,
+    ...(s.channels ? { channels: s.channels } : {}), ...(s.disposition?.forced === 1 ? { forced: true } : {}),
+  });
+  const audios = streams.filter((s) => s.codec_type === "audio").map(track);
+  const subs = streams.filter((s) => s.codec_type === "subtitle").map((s, n) => ({ ...track(s, n), text: TEXT_SUBS.has(s.codec_name) }));
   const p: Probe = {
     container: data.format?.format_name ?? "",
     video: video?.codec_name ?? null,
     hdr: HDR_TRANSFERS.has(video?.color_transfer ?? ""),
-    audio: streams.find((s) => s.codec_type === "audio")?.codec_name ?? null,
+    audio: audios[0]?.codec ?? null,
     duration: Number(data.format?.duration ?? 0),
+    audios, subs,
   };
   probes.set(file, { mtime, probe: p });
   return p;
 }
 
-export function playsDirectly(file: string, p: Probe): boolean {
-  return DIRECT_EXT.has(extname(file).toLowerCase()) && p.video !== null && DIRECT_VIDEO.has(p.video)
+/** A valid audio stream number for this file: `asked` if it exists, else 0. */
+export function audioOf(p: Probe, asked: number | null | undefined): number {
+  const n = Number(asked ?? 0);
+  return Number.isInteger(n) && n > 0 && n < (p.audios?.length ?? 0) ? n : 0;
+}
+
+/** As is, in the browser: a container and codecs it plays, with the first audio track (it plays that one). */
+export function playsDirectly(file: string, p: Probe, audio = 0): boolean {
+  return audio === 0 && DIRECT_EXT.has(extname(file).toLowerCase()) && p.video !== null && DIRECT_VIDEO.has(p.video)
     && (p.audio === null || DIRECT_AUDIO.has(p.audio));
 }
 
-/** The ffmpeg arguments that turn the file into a browser-friendly MP4. */
-export function prepareArgs(file: string, p: Probe, out: string, nvenc: boolean): string[] {
-  const args = ["-hide_banner", "-nostdin", "-y", "-i", file, "-map", "0:v:0", "-map", "0:a:0?", "-sn"];
+/** The ffmpeg arguments that turn the file into a browser-friendly MP4, with audio track `audio`. */
+export function prepareArgs(file: string, p: Probe, out: string, nvenc: boolean, audio = 0): string[] {
+  const args = ["-hide_banner", "-nostdin", "-y", "-i", file, "-map", "0:v:0", "-map", `0:a:${audio}?`, "-sn"];
   if (p.hdr) args.push("-vf", TONEMAP);
   if (p.video === "h264" && !p.hdr) args.push("-c:v", "copy");
   else if (nvenc) args.push("-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23", "-pix_fmt", "yuv420p");
   else args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p");
-  if (p.audio && COPY_AUDIO.has(p.audio)) args.push("-c:a", "copy");
+  const codec = p.audios?.[audio]?.codec ?? p.audio;
+  if (codec && COPY_AUDIO.has(codec)) args.push("-c:a", "copy");
   else args.push("-c:a", "aac", "-b:a", "192k", "-ac", "2");
   args.push("-movflags", "+faststart", "-progress", "pipe:1", "-f", "mp4", out);
   return args;
@@ -105,23 +141,26 @@ function pump(): void {
   next().finally(() => { busy = false; pump(); });
 }
 
-export function cachedPath(file: string, cacheDir: string): string {
-  const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}`).digest("hex").slice(0, 20);
+/** The prepared copy's place; the first audio track keeps the name copies had before tracks existed. */
+export function cachedPath(file: string, cacheDir: string, audio = 0): string {
+  const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}${audio ? `:a${audio}` : ""}`).digest("hex").slice(0, 20);
   return join(cacheDir, "video", `${key}.mp4`);
 }
 
-/** Where the browser should read this file from: itself, a ready cache, or a job in progress. */
-export async function playable(file: string, cacheDir: string): Promise<{ path: string } | { job: Job }> {
+/** Where the browser should read this file from (with audio track `audio`): itself, a ready cache, or a job. */
+export async function playable(file: string, cacheDir: string, audio = 0): Promise<{ path: string } | { job: Job }> {
   const p = await probe(file);
-  if (playsDirectly(file, p)) return { path: file };
-  const out = cachedPath(file, cacheDir);
+  const a = audioOf(p, audio);
+  if (playsDirectly(file, p, a)) return { path: file };
+  const out = cachedPath(file, cacheDir, a);
   if (existsSync(out)) return { path: out };
   return { job: jobs.get(out) ?? { state: "queued", progress: 0 } };
 }
 
-/** Queue the preparation (once per file); one ffmpeg at a time. */
-export async function prepare(file: string, cacheDir: string): Promise<Job> {
-  const out = cachedPath(file, cacheDir);
+/** Queue the preparation (once per file and audio track); one ffmpeg at a time. */
+export async function prepare(file: string, cacheDir: string, audio = 0): Promise<Job> {
+  const a = audioOf(await probe(file), audio);
+  const out = cachedPath(file, cacheDir, a);
   if (existsSync(out)) return { state: "done", progress: 1 };
   const existing = jobs.get(out);
   if (existing && existing.state !== "failed") return existing;
@@ -132,7 +171,7 @@ export async function prepare(file: string, cacheDir: string): Promise<Job> {
     const p = await probe(file);
     mkdirSync(join(cacheDir, "video"), { recursive: true });
     const tmp = `${out}.part.mp4`;
-    const args = prepareArgs(file, p, tmp, p.video !== "h264" && await hasNvenc());
+    const args = prepareArgs(file, p, tmp, (p.video !== "h264" || !!p.hdr) && await hasNvenc(), a);
     await new Promise<void>((resolve) => {
       const ff = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
       let err = "";
@@ -189,6 +228,33 @@ export function srtToVtt(srt: string): string {
   const body = srt.replace(/^﻿/, "").replace(/\r\n?/g, "\n")
     .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
   return `WEBVTT\n\n${body.trim()}\n`;
+}
+
+/**
+ * A text subtitle stream inside the video (0:s:n) as WebVTT, cached: getting it out reads the
+ * whole file, which for a film takes a while. Picture subtitles (PGS, VobSub) can't become text.
+ */
+export async function embeddedVtt(file: string, n: number, cacheDir: string): Promise<string> {
+  const sub = (await probe(file)).subs?.[n];
+  if (!sub) throw new RangeError(`no subtitle stream ${n}`);
+  if (!sub.text) throw new Error(`subtitle stream ${n} is pictures (${sub.codec}), not text`);
+  const key = createHash("sha1").update(`${file}:${statSync(file).mtimeMs}:s${n}`).digest("hex").slice(0, 20);
+  const out = join(cacheDir, "subs", `${key}.vtt`);
+  if (!existsSync(out)) {
+    let job = extracting.get(out);
+    if (!job) {
+      job = (async () => {
+        mkdirSync(join(cacheDir, "subs"), { recursive: true });
+        const tmp = `${out}.${process.pid}.${randomBytes(4).toString("hex")}`;
+        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", file, "-map", `0:s:${n}`, "-f", "webvtt", tmp],
+          { timeout: 10 * 60_000 });
+        renameSync(tmp, out);
+      })().finally(() => extracting.delete(out));
+      extracting.set(out, job);
+    }
+    await job;
+  }
+  return readFileSync(out, "utf8");
 }
 
 export async function subtitlesVtt(file: string): Promise<string> {

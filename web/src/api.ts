@@ -25,6 +25,33 @@ export interface WorkSummary {
   finished: number;
   last: Progress | null;
   cover: string | null;
+  /** Where the cover comes from: the work's own poster file, TMDB or AniList, or a frame or first page. */
+  poster: "file" | "metadata" | "auto" | null;
+}
+
+export interface Details {
+  overview: string | null;
+  genres: string[];
+  credits: string[];
+  /** Minutes (per episode for a series). */
+  runtime: number | null;
+  source: "tmdb" | "anilist" | null;
+  url: string | null;
+  extId: string | null;
+  remoteTitle: string | null;
+  match: "id" | "auto" | "owner" | "none" | null;
+  /** The provider this work can be looked up in, if any is on. */
+  lookup: "tmdb" | "anilist" | null;
+}
+
+export interface Candidate {
+  source: "tmdb" | "anilist";
+  extId: string;
+  title: string | null;
+  overview: string | null;
+  year: number | null;
+  posterUrl: string | null;
+  url: string | null;
 }
 
 export interface UnitView {
@@ -40,6 +67,25 @@ export interface UnitView {
 
 export interface WorkDetail extends WorkSummary {
   unitList: UnitView[];
+  details: Details;
+}
+
+export interface AudioTrack {
+  n: number;
+  lang: string | null;
+  title: string | null;
+  codec: string;
+  channels: number | null;
+  default: boolean;
+}
+
+export interface SubtitleTrack {
+  index: number | string;
+  label: string | null;
+  lang: string | null;
+  forced: boolean;
+  kind: "file" | "embedded";
+  href: string;
 }
 
 export interface VideoInfo {
@@ -48,7 +94,52 @@ export interface VideoInfo {
   /** False when this request came through the public proxy and video stays home. */
   allowed?: boolean;
   job: { state: string; progress: number; error?: string } | null;
-  subtitles: { index: number; label: string; href: string }[];
+  audioTrack: number;
+  audios: AudioTrack[];
+  subtitles: SubtitleTrack[];
+}
+
+/** A profile's audio and subtitles for a work, by language so they carry to the next episode. */
+export interface TrackChoice {
+  audio: { lang: string | null; n: number } | null;
+  subtitle: { lang: string | null; label: string | null } | "off" | null;
+}
+
+export interface YearStats {
+  profile: string;
+  year: number;
+  years: number[];
+  seconds: number;
+  pages: number;
+  unitsFinished: number;
+  worksFinished: WorkSummary[];
+  worksTouched: number;
+  daysActive: number;
+  longestStreak: number;
+  byMonth: { seconds: number; pages: number; finished: number }[];
+  byType: Partial<Record<WorkType, number>>;
+  top: { workId: string; seconds: number; pages: number; work: WorkSummary }[];
+}
+
+const LANGS: Record<string, string> = {
+  es: "Español", spa: "Español", "es-419": "Español latino", "es-mx": "Español latino", "es-ar": "Español", "es-es": "Español de España",
+  en: "Inglés", eng: "Inglés", ja: "Japonés", jpn: "Japonés", pt: "Portugués", por: "Portugués", fr: "Francés", fra: "Francés", fre: "Francés",
+  de: "Alemán", deu: "Alemán", ger: "Alemán", it: "Italiano", ita: "Italiano", ko: "Coreano", kor: "Coreano", zh: "Chino", zho: "Chino",
+  chi: "Chino", ru: "Ruso", rus: "Ruso", ca: "Catalán", cat: "Catalán",
+};
+
+/** "Japonés · Original", "Inglés · 5.1", "Pista 2": a track as a person reads it. */
+export function trackLabel(t: { lang: string | null; title?: string | null; channels?: number | null; label?: string | null }, i: number): string {
+  const lang = t.lang ? LANGS[t.lang.toLowerCase()] ?? t.lang.toUpperCase() : null;
+  const extra = t.title ?? (t.channels && t.channels > 2 ? (t.channels === 6 ? "5.1" : t.channels === 8 ? "7.1" : `${t.channels} canales`) : null);
+  const parts = [lang, extra && extra !== lang ? extra : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : t.label ?? `Pista ${i + 1}`;
+}
+
+/** "1 h 44 min", "24 min". */
+export function minutes(n: number): string {
+  const h = Math.floor(n / 60), m = Math.round(n % 60);
+  return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`;
 }
 
 export class AuthError extends Error {}

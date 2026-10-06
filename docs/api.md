@@ -32,11 +32,27 @@ After 10 wrong tokens in 15 minutes from one address, that address gets `429` wi
 | | |
 |---|---|
 | `GET /api/v1/search?q=&type=&limit=` | Works by title (accents optional), original title, year or id, best first, with `score`. |
-| `GET /api/v1/works` | Every work: `id, kind, type, title, year, ids, reading, units, finished, last, cover`. |
-| `GET /api/v1/works/:kind/:slug` | One work, plus `unitList` with each unit's progress. |
+| `GET /api/v1/works` | Every work: `id, kind, type, title, year, ids, reading, units, finished, last, cover, poster`. `poster` says where the cover comes from: `file`, `metadata` or `auto`. |
+| `GET /api/v1/works/:kind/:slug` | One work, plus `unitList` with each unit's progress and `details`: `{overview, genres, credits, runtime, source, url, extId, match, lookup}`. The yaml's own words win over TMDB's or AniList's. |
 | `POST /api/v1/works` | Create one: `{title, type, year?, originalTitle?, ids?, slug?}` → its folder and `work.yaml`. |
-| `GET /api/v1/works/:kind/:slug/cover` | An image: the first page, or the most detailed of a few frames from the first act of the first video. `?w=320` for a small copy. |
+| `GET /api/v1/works/:kind/:slug/cover` | An image: the work's own poster file, else one from TMDB or AniList, else the first page or the most detailed of a few frames from the first act of the first video. `?w=320` for a small copy. |
+| `PUT /api/v1/works/:kind/:slug/poster` | The body is a JPEG, PNG or WebP (up to 25 MB): saved as `poster.<ext>` in the work's folder, or `<name>-poster.<ext>` beside a single file. |
+| `POST /api/v1/works/:kind/:slug/poster/frame` | `{at, unit?}`: the poster from a frame, `at` a share of the running time. |
+| `DELETE /api/v1/works/:kind/:slug/poster` | Removes the work's own poster file. |
 | `POST /api/v1/rescan` | Read the folders again now (they are also read every 5 minutes and after an upload). |
+
+## Metadata
+
+Off unless `ARCHIVIST_METADATA` lists `tmdb` (with `ARCHIVIST_TMDB_TOKEN`) and/or `anilist`. A new
+work is looked up once, in the background: by `ids.tmdb_movie`, `ids.tmdb_tv` or `ids.anilist`
+in its yaml, else by title and year, kept only when both agree.
+
+| | |
+|---|---|
+| `GET /api/v1/works/:kind/:slug/meta/search?q=` | Candidates, best first: `{source, extId, title, year, overview, posterUrl, url}`. |
+| `PUT /api/v1/works/:kind/:slug/meta` | `{extId: "movie/603"}` picks one; `{extId: null}` says it is none (no more automatic tries). |
+| `POST /api/v1/works/:kind/:slug/meta/refresh` | Look it up again now. |
+| `GET /api/v1/meta/thumb?u=` | A candidate's poster, small, fetched by the server (TMDB and AniList image hosts only). |
 
 ## Units
 
@@ -44,11 +60,11 @@ After 10 wrong tokens in 15 minutes from one address, that address gets `429` wi
 |---|---|
 | `GET /api/v1/units/:kind/:slug/:unit/pages` | `{count}` |
 | `GET /api/v1/units/:kind/:slug/:unit/pages/:n` | Page `n` (1-based), as an image; `?w=` for a small copy. |
-| `GET /api/v1/units/:kind/:slug/:unit/info` | Video: `{duration, ready, allowed, job, subtitles}`; `allowed` is false through the public proxy (video stays home). |
-| `POST /api/v1/units/:kind/:slug/:unit/prepare` | Video the browser can't play: start converting it once (ffmpeg). |
-| `GET /api/v1/units/:kind/:slug/:unit/video` | The video, with HTTP ranges; `409 {preparing, progress}` while it converts. |
+| `GET /api/v1/units/:kind/:slug/:unit/info?audio=` | Video: `{duration, ready, allowed, job, audioTrack, audios, subtitles}`; `allowed` is false through the public proxy (video stays home). `audios`: `{n, lang, title, codec, channels, default}`. `subtitles`: files beside the video and text streams inside it, `{index, label, lang, forced, kind, href}`. |
+| `POST /api/v1/units/:kind/:slug/:unit/prepare?audio=` | Video the browser can't play, or with another audio track: convert it once (ffmpeg). Each audio track is its own copy. |
+| `GET /api/v1/units/:kind/:slug/:unit/video?audio=` | The video, with HTTP ranges; `409 {preparing, progress}` while it converts. |
 | `GET /api/v1/units/:kind/:slug/:unit/frame?t=SECONDS` | One frame as JPEG; `?at=0.1` for a share of the running time, `?w=` for a small copy. |
-| `GET /api/v1/units/:kind/:slug/:unit/subtitles/:i` | A subtitle file as WebVTT. |
+| `GET /api/v1/units/:kind/:slug/:unit/subtitles/:i` | A subtitle as WebVTT: `0`, `1`… for files beside the video, `e0`, `e1`… for text streams inside it (extracted once, cached). |
 | `GET /api/v1/units/:kind/:slug/:unit/file` | The volume's own file (CBZ, ZIP, PDF), for download. |
 
 Tools get pages and single frames. There is no endpoint that cuts a clip, on purpose
@@ -94,8 +110,12 @@ user name (so an OPDS reader logged in as `sol` reads as Sol), else the owner.
 | `GET /api/v1/progress` | `{latest, all}`: the unit last touched in each work (newest first), and every unit's position. |
 | `PUT /api/v1/progress/:kind/:slug/:unit` | `{position, total}`: a page number and the page count, or seconds and the duration. |
 | `GET /api/v1/events?since=ID` | What happened after event `ID`: `finished` (a unit), `work_added`, `work_removed`. |
+| `GET /api/v1/stats?year=` | A profile's year: `seconds` watched, `pages` read, `unitsFinished`, `worksFinished`, `daysActive`, `longestStreak`, `byMonth`, `byType`, `top`. |
+| `GET`/`PUT /api/v1/works/:kind/:slug/tracks` | A profile's audio and subtitles for a work: `{audio: {lang, n} \| null, subtitle: {lang, label} \| "off" \| null}`. |
 
 A unit is finished on its last page, or at 95 % of a video; reading it again keeps it finished.
+Each save also logs, per day, how far it moved forward since the last one (a jump ahead counts
+only as much as the clock allows): that is what `stats` adds up.
 
 ## Uploads
 

@@ -20,6 +20,7 @@ const UNIT = [...WORK, path("unit", "A unit key: `v01`, `s01e02`, `film`.")];
 const LOOK = { name: { type: "string" }, hue: { type: ["integer", "null"], minimum: 0, maximum: 359, description: "The avatar's color." },
   glyph: { type: ["string", "null"], description: "One emoji for the avatar; null for the initial." } };
 const PROFILE = query("profile", "Whose progress (a profile id); also the `X-Archivist-Profile` header. Default: the owner.");
+const AUDIO = query("audio", "Which audio track (from info's `audios`); default the first. Another one is prepared once.", { type: "integer", minimum: 0 });
 
 function op(tag: string, summary: string, extra: Json = {}, responses: Json = { 200: ok("OK") }): Json {
   return { tags: [tag], summary, ...extra, responses: { ...responses, 401: ok("Token required") } };
@@ -37,7 +38,7 @@ export function openapi(version: string, server?: string): Json {
     },
     ...(server ? { servers: [{ url: server }] } : {}),
     security: [{ bearer: [] }],
-    tags: ["works", "units", "progress", "profiles", "uploads", "session"].map((name) => ({ name })),
+    tags: ["works", "metadata", "units", "progress", "profiles", "uploads", "session"].map((name) => ({ name })),
     paths: {
       "/api/v1/health": { get: { ...op("session", "Liveness, and whether this client needs a token", { security: [] }), responses: {
         200: ok("OK", { type: "object", properties: { ok: { type: "boolean" }, works: { type: "integer" }, open: { type: "boolean" } } }) } } },
@@ -64,26 +65,63 @@ export function openapi(version: string, server?: string): Json {
       },
       "/api/v1/works/{kind}/{slug}": { get: op("works", "One work with its units and their progress", { parameters: [...WORK, PROFILE] },
         { 200: ok("The work", ref("WorkDetail")), 404: ok("Unknown work") }) },
-      "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the first page, or the most detailed of a few frames from the first act of the first video",
+      "/api/v1/works/{kind}/{slug}/cover": { get: op("works", "Cover image: the work's own poster file, else a poster from TMDB or AniList, "
+        + "else the first page or the most detailed of a few frames from the first act of the first video",
         { parameters: [...WORK, query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The cover") }) },
+      "/api/v1/works/{kind}/{slug}/poster": {
+        put: op("works", "Set the work's own poster: the body is a JPEG, PNG or WebP image (up to 25 MB), saved as poster.<ext> in its folder "
+          + "(or <name>-poster.<ext> beside a single file)", { parameters: WORK, requestBody: { required: true, content: { "image/*": {
+            schema: { type: "string", format: "binary" } } } } }, { 200: ok("The work", ref("WorkDetail")), 415: ok("Not an image") }),
+        delete: op("works", "Remove the work's own poster file (the cover goes back to TMDB, AniList or a frame)", { parameters: WORK },
+          { 200: ok("The work", ref("WorkDetail")) }),
+      },
+      "/api/v1/works/{kind}/{slug}/poster/frame": { post: op("works", "Make the work's poster from a frame of one of its videos", {
+        parameters: WORK, requestBody: jsonBody({ type: "object", required: ["at"], properties: {
+          at: { type: "number", minimum: 0, maximum: 1, description: "A share of the running time." },
+          unit: { type: "string", description: "A video unit; default the first." } } }) }, { 200: ok("The work", ref("WorkDetail")) }) },
+      "/api/v1/works/{kind}/{slug}/meta/search": { get: op("metadata", "Search TMDB or AniList for this work (needs ARCHIVIST_METADATA)", {
+        parameters: [...WORK, query("q", "What to search; default the work's original title or title.")] },
+        { 200: ok("Candidates, best first", { type: "object", properties: { results: { type: "array", items: ref("Details") } } }),
+          400: ok("No metadata provider for this work") }) },
+      "/api/v1/works/{kind}/{slug}/meta": { put: op("metadata", "Pick the right TMDB or AniList entry (extId, e.g. movie/603), or null for none", {
+        parameters: WORK, requestBody: jsonBody({ type: "object", required: ["extId"], properties: { extId: { type: ["string", "null"] } } }) },
+        { 200: ok("The work", ref("WorkDetail")) }) },
+      "/api/v1/works/{kind}/{slug}/meta/refresh": { post: op("metadata", "Look the work up again, now", { parameters: WORK },
+        { 200: ok("The work", ref("WorkDetail")) }) },
+      "/api/v1/meta/thumb": { get: op("metadata", "A search result's poster, small, fetched by the server (TMDB and AniList image hosts only)", {
+        parameters: [query("u", "The candidate's posterUrl.")] }, { 200: image("The poster"), 404: ok("Not a TMDB or AniList image") }) },
+      "/api/v1/works/{kind}/{slug}/tracks": {
+        get: op("progress", "A profile's audio and subtitle choice for a work", { parameters: [...WORK, PROFILE] }),
+        put: op("progress", "Save a profile's audio and subtitle choice for a work (by language, so it carries to the next episode)", {
+          parameters: [...WORK, PROFILE], requestBody: jsonBody({ type: "object", properties: {
+            audio: { type: ["object", "null"], properties: { lang: { type: ["string", "null"] }, n: { type: "integer" } } },
+            subtitle: { oneOf: [{ type: "string", enum: ["off"] }, { type: "null" },
+              { type: "object", properties: { lang: { type: ["string", "null"] }, label: { type: ["string", "null"] } } }] } } }) }),
+      },
       "/api/v1/rescan": { post: op("works", "Read the folders again now") },
       "/api/v1/units/{kind}/{slug}/{unit}/pages": { get: op("units", "Page count", { parameters: UNIT },
         { 200: ok("Count", { type: "object", properties: { count: { type: "integer" } } }) }) },
       "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}": { get: op("units", "One page (from 1), as stored or scaled with ?w=", {
         parameters: [...UNIT, path("n", "Page number, from 1."), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The page"), 404: ok("No such page") }) },
-      "/api/v1/units/{kind}/{slug}/{unit}/info": { get: op("units", "A video's running time, whether it plays now, and its subtitles",
-        { parameters: UNIT }, { 200: ok("Info", { type: "object", properties: { duration: { type: "number" }, ready: { type: "boolean" },
+      "/api/v1/units/{kind}/{slug}/{unit}/info": { get: op("units", "A video's running time, its audio tracks and subtitles, and whether it plays now",
+        { parameters: [...UNIT, AUDIO] }, { 200: ok("Info", { type: "object", properties: { duration: { type: "number" }, ready: { type: "boolean" },
           allowed: { type: "boolean", description: "False through the public proxy unless ARCHIVIST_PROXIED_VIDEO is on." },
-          subtitles: { type: "array", items: { type: "object" } } } }) }) },
+          audioTrack: { type: "integer" }, audios: { type: "array", items: { type: "object", properties: { n: { type: "integer" },
+            lang: { type: ["string", "null"] }, title: { type: ["string", "null"] }, codec: { type: "string" }, channels: { type: ["integer", "null"] },
+            default: { type: "boolean" } } } },
+          subtitles: { type: "array", items: { type: "object", properties: { index: { type: ["integer", "string"] }, label: { type: ["string", "null"] },
+            lang: { type: ["string", "null"] }, forced: { type: "boolean" }, kind: { type: "string", enum: ["file", "embedded"] },
+            href: { type: "string" } } } } } }) }) },
       "/api/v1/units/{kind}/{slug}/{unit}/frame": { get: op("units", "One still at `t` seconds, as JPEG (never a clip)", {
         parameters: [...UNIT, query("t", "Seconds from the start.", { type: "number", minimum: 0 }),
         query("at", "Or a share of the running time, 0 to 1.", { type: "number", minimum: 0, maximum: 1 }), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640 or 960), cached.", { type: "integer" })] }, { 200: image("The frame") }) },
-      "/api/v1/units/{kind}/{slug}/{unit}/video": { get: op("units", "The video for the player, with HTTP ranges", { parameters: UNIT },
+      "/api/v1/units/{kind}/{slug}/{unit}/video": { get: op("units", "The video for the player, with HTTP ranges", { parameters: [...UNIT, AUDIO] },
         { 200: ok("Video", undefined), 206: ok("Partial"), 403: ok("Not served through the public proxy"), 409: ok("Still converting") }) },
-      "/api/v1/units/{kind}/{slug}/{unit}/prepare": { post: op("units", "Convert a video the browser can't play (once, in the background)",
-        { parameters: UNIT }, { 202: ok("Job started"), 403: ok("Not through the public proxy") }) },
+      "/api/v1/units/{kind}/{slug}/{unit}/prepare": { post: op("units", "Convert a video the browser can't play, or with another audio track (once, in the background)",
+        { parameters: [...UNIT, AUDIO] }, { 202: ok("Job started"), 403: ok("Not through the public proxy") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/subtitles/{i}": { get: op("units", "A subtitle file as WebVTT", {
-        parameters: [...UNIT, path("i", "Subtitle index from info.")] }, { 200: ok("WebVTT", { type: "string" }, "text/vtt") }) },
+        parameters: [...UNIT, path("i", "Subtitle index from info: a number for a file beside the video, `e0`, `e1`… for one inside it.")] },
+        { 200: ok("WebVTT", { type: "string" }, "text/vtt") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/file": { get: op("units", "A volume's own file (CBZ, ZIP, PDF) to download", { parameters: UNIT },
         { 200: ok("The file", { type: "string", format: "binary" }, "application/octet-stream") }) },
       "/api/v1/progress": { get: op("progress", "Where a profile is: the last unit of each work, and every saved position",
@@ -93,6 +131,8 @@ export function openapi(version: string, server?: string): Json {
         parameters: [...UNIT, PROFILE], requestBody: jsonBody({ type: "object", required: ["position", "total"],
           properties: { position: { type: "number", minimum: 0 }, total: { type: "number", minimum: 0 } } }) },
       { 200: ok("Saved", { type: "object", properties: { progress: ref("Progress"), newlyFinished: { type: "boolean" } } }) }) },
+      "/api/v1/stats": { get: op("progress", "A profile's year: time watched, pages read, units and works finished, by month and by type", {
+        parameters: [query("year", "Default this year.", { type: "integer" }), PROFILE] }) },
       "/api/v1/events": { get: op("progress", "Events after an id: finished, work_added, work_removed", {
         parameters: [query("since", "Only events with a larger id.", { type: "integer", minimum: 0 })] }) },
       "/api/v1/profiles": {
@@ -124,8 +164,17 @@ export function openapi(version: string, server?: string): Json {
           type: ref("WorkType"), title: { type: "string" }, year: { type: ["integer", "null"] }, originalTitle: { type: ["string", "null"] },
           ids: { type: "object" }, reading: { type: ["string", "null"], enum: ["rtl", "ltr", "vertical", null] },
           units: { type: "integer" }, finished: { type: "integer" }, last: { oneOf: [ref("Progress"), { type: "null" }] },
-          cover: { type: ["string", "null"] } } },
-        WorkDetail: { allOf: [ref("Work"), { type: "object", properties: { unitList: { type: "array", items: ref("Unit") } } }] },
+          cover: { type: ["string", "null"] }, poster: { type: ["string", "null"], enum: ["file", "metadata", "auto", null],
+            description: "Where the cover comes from." } } },
+        WorkDetail: { allOf: [ref("Work"), { type: "object", properties: { unitList: { type: "array", items: ref("Unit") },
+          details: { type: "object", description: "The yaml's overview, genres and credits first, then TMDB or AniList's.", properties: {
+            overview: { type: ["string", "null"] }, genres: { type: "array", items: { type: "string" } }, credits: { type: "array", items: { type: "string" } },
+            runtime: { type: ["integer", "null"], description: "Minutes (per episode for a series)." }, source: { type: ["string", "null"] },
+            url: { type: ["string", "null"] }, extId: { type: ["string", "null"] }, match: { type: ["string", "null"], enum: ["id", "auto", "owner", "none", null] },
+            lookup: { type: ["string", "null"], description: "The provider that can be searched for it, if any." } } } } }] },
+        Details: { type: "object", properties: { source: { type: "string", enum: ["tmdb", "anilist"] }, extId: { type: "string" },
+          title: { type: ["string", "null"] }, overview: { type: ["string", "null"] }, year: { type: ["integer", "null"] },
+          posterUrl: { type: ["string", "null"] }, url: { type: ["string", "null"] } } },
         Unit: { type: "object", properties: { key: { type: "string" }, label: { type: "string" },
           format: { type: "string", enum: ["video", "cbz", "zip", "pdf", "images"] }, season: { type: ["integer", "null"] },
           episode: { type: ["integer", "null"] }, volume: { type: ["integer", "null"] }, subtitles: { type: "integer" },

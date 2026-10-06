@@ -1,6 +1,7 @@
 /** Settings from the environment. A non-loopback address without a token is refused. */
 import { BlockList, isIP } from "node:net";
 import { resolve } from "node:path";
+import { providers, type MetaConfig } from "./meta.ts";
 
 export interface Config {
   library: string;
@@ -18,6 +19,8 @@ export interface Config {
   hosts?: string[];
   /** Reverse proxies whose forwarded client address is believed (ARCHIVIST_PROXIES); loopback by default. */
   proxies?: BlockList;
+  /** TMDB and AniList lookups (ARCHIVIST_METADATA, ARCHIVIST_TMDB_TOKEN); none by default. */
+  metadata?: MetaConfig;
 }
 
 /** Shorthands for ARCHIVIST_TRUSTED, plus any CIDR ("192.168.1.0/24"). */
@@ -71,5 +74,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     proxiedVideo: /^(1|on|true|yes)$/i.test(env.ARCHIVIST_PROXIED_VIDEO ?? ""),
     hosts: (env.ARCHIVIST_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean),
     proxies: trustedNetworks(env.ARCHIVIST_PROXIES || "loopback", "ARCHIVIST_PROXIES"),
+    metadata: { providers: providers(env.ARCHIVIST_METADATA), tmdbToken: env.ARCHIVIST_TMDB_TOKEN?.trim() || null },
   };
 }

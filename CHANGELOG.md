@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0 — 2026-10-06
+
+- Posters: a work's own `poster.jpg` (or `folder.jpg`; `<film>-poster.jpg` beside a film) is its
+  cover, and never taken for a page. From the work's page, "Portada y datos" uploads one or makes
+  it from any of twelve frames of the video. `PUT`/`DELETE /api/v1/works/…/poster`,
+  `POST …/poster/frame`.
+- Details and posters from TMDB (films, series) and AniList (anime, manga), off unless
+  `ARCHIVIST_METADATA` turns them on: the synopsis, genres, director or author or studio, the
+  running time, and a poster kept in the cache. A work is found by the ids in its yaml, else by
+  title and year only when both agree; the owner can search and pick another, or say it's none.
+  The browser never talks to them: candidates' posters come through `/api/v1/meta/thumb`.
+  The yaml's own `overview`, `genres`, `director`/`author`/`studio` always win.
+- Audio and subtitles: every audio track and every text subtitle inside the file (SRT, ASS,
+  WebVTT, mov_text), besides the files beside it. Another audio track is prepared once as its
+  own copy. The choice is per profile and work, by language, so it carries to the next episode.
+  `?audio=` on `info`, `video` and `prepare`; `subtitles/e0…`; `GET`/`PUT /api/v1/works/…/tracks`.
+- Upload: a drop zone that takes files and whole folders, real buttons instead of the browser's,
+  and a list with each file's progress, the speed and the time left; files the work can't take
+  are pointed out before sending.
+- Tu año: each profile's year — time watched, pages read, units and works finished, days with
+  something, the longest streak, month by month and what kept them busiest. Time is logged from
+  now on as positions move forward (a jump ahead doesn't count); earlier progress counts once.
+  `GET /api/v1/stats?year=`.
+- Installable: a web manifest and icons.
+
 ## 0.5.1 — 2026-10-06
 
 - HDR video (a UHD Blu-ray transfer, PQ or HLG) no longer comes out grey and washed out: frames,

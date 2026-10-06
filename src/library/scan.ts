@@ -21,6 +21,16 @@ export const ARCHIVE_EXT = new Set([".cbz", ".zip", ".pdf"]);
 export const SUBTITLE_EXT = new Set([".srt", ".vtt", ".ass", ".ssa"]);
 export const TYPES = ["film", "series", "anime", "manga", "comic"] as const;
 
+/**
+ * A work's own poster, next to its files: `poster.jpg` (or `folder.jpg`) in its folder, and for a
+ * film, `<film>-poster.jpg` or `<film>.poster.jpg` beside the video. These are never pages.
+ */
+export const POSTER_STEMS = ["poster", "folder"];
+export function isPosterName(name: string): boolean {
+  const ext = extname(name).toLowerCase();
+  return IMAGE_EXT.has(ext) && POSTER_STEMS.includes(basename(name, extname(name)).toLowerCase());
+}
+
 export type WorkType = (typeof TYPES)[number];
 export type Kind = "video" | "pages" | "stills";
 
@@ -60,6 +70,10 @@ export interface Work {
   reading: "rtl" | "ltr" | "vertical" | null;
   /** The work's folder or file, relative to the library root. */
   path: string;
+  /** Its own poster image, relative to the root, if there is one (POSTER_STEMS). */
+  poster?: string;
+  /** What the owner wrote about it in its yaml: overview, genres, credits. */
+  notes?: { overview?: string; genres?: string[]; credits?: string[] };
   units: Unit[];
 }
 
@@ -110,7 +124,28 @@ export function volumeOf(name: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-function work(root: string, kind: Kind, slug: string, rel: string, meta: Meta, fallback: WorkType, units: Unit[]): Work {
+const strings = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
+
+/** overview / synopsis, genres, and who made it (director, author, studio), as written in the yaml. */
+function notesOf(meta: Meta): Work["notes"] {
+  const overview = [meta.overview, meta.synopsis, meta.sinopsis].find((v): v is string => typeof v === "string" && !!v.trim());
+  const genres = strings(meta.genres ?? meta.generos);
+  const credits = [...strings(meta.director), ...strings(meta.author ?? meta.autor), ...strings(meta.studio ?? meta.estudio)];
+  if (!overview && !genres.length && !credits.length) return undefined;
+  return { ...(overview ? { overview: overview.trim() } : {}), ...(genres.length ? { genres } : {}), ...(credits.length ? { credits } : {}) };
+}
+
+function posterIn(dir: string, relDir: string, stems: string[]): string | undefined {
+  const files = entries(dir).filter((d) => d.isFile() && IMAGE_EXT.has(extname(d.name).toLowerCase()));
+  for (const stem of stems) {
+    const hit = files.find((d) => basename(d.name, extname(d.name)).toLowerCase() === stem.toLowerCase());
+    if (hit) return join(relDir, hit.name);
+  }
+  return undefined;
+}
+
+function work(root: string, kind: Kind, slug: string, rel: string, meta: Meta, fallback: WorkType, units: Unit[], poster?: string): Work {
   const type = isType(meta.type) ? meta.type : fallback;
   const reading = meta.reading === "rtl" || meta.reading === "ltr" || meta.reading === "vertical"
     ? meta.reading : kind === "pages" ? (type === "manga" ? "rtl" : "ltr") : null;
@@ -118,7 +153,8 @@ function work(root: string, kind: Kind, slug: string, rel: string, meta: Meta, f
     id: `${kind}/${slug}`, slug, kind, type, title: meta.title || slugTitle(slug),
     year: typeof meta.year === "number" ? meta.year : undefined,
     originalTitle: typeof meta.original_title === "string" ? meta.original_title : undefined,
-    ids: meta.ids && typeof meta.ids === "object" ? meta.ids : {}, reading, path: rel, units,
+    ids: meta.ids && typeof meta.ids === "object" ? meta.ids : {}, reading, path: rel,
+    ...(poster ? { poster } : {}), ...(notesOf(meta) ? { notes: notesOf(meta) } : {}), units,
   };
 }
 
@@ -140,7 +176,8 @@ function scanVideo(root: string): Work[] {
       const slug = basename(d.name, yext);
       const hasVideo = all.some((o) => o.name !== d.name && basename(o.name, extname(o.name)) === slug);
       if (!hasVideo && stems.has(slug)) {
-        out.push(work(root, "video", slug, join("video", d.name), readMeta(join(base, d.name)), "film", []));
+        out.push(work(root, "video", slug, join("video", d.name), readMeta(join(base, d.name)), "film", [],
+          posterIn(base, "video", [`${slug}-poster`, `${slug}.poster`])));
       }
       continue;
     }
@@ -151,7 +188,7 @@ function scanVideo(root: string): Work[] {
       const rel = join("video", d.name);
       out.push(work(root, "video", slug, rel, meta, "film", [
         { key: "film", label: "Película", path: rel, format: "video", subtitles: subtitlesFor(base, slug, "video") },
-      ]));
+      ], posterIn(base, "video", [`${slug}-poster`, `${slug}.poster`])));
     } else if (d.isDirectory()) {
       const dir = join(base, d.name);
       const meta = readMeta(join(dir, "work.yaml"), join(dir, `${d.name}.yaml`), join(base, `${d.name}.yaml`));
@@ -168,14 +205,14 @@ function scanVideo(root: string): Work[] {
         };
       });
       units.sort((a, b) => (a.season! - b.season!) || (a.episode! - b.episode!));
-      out.push(work(root, "video", d.name, join("video", d.name), meta, "series", units));
+      out.push(work(root, "video", d.name, join("video", d.name), meta, "series", units, posterIn(dir, join("video", d.name), POSTER_STEMS)));
     }
   }
   return out;
 }
 
 function images(dir: string): Dirent[] {
-  return entries(dir).filter((f) => f.isFile() && IMAGE_EXT.has(extname(f.name).toLowerCase()));
+  return entries(dir).filter((f) => f.isFile() && IMAGE_EXT.has(extname(f.name).toLowerCase()) && !isPosterName(f.name));
 }
 
 function scanPages(root: string): Work[] {
@@ -189,7 +226,7 @@ function scanPages(root: string): Work[] {
       const rel = join("pages", d.name);
       out.push(work(root, "pages", slug, rel, meta, "comic", [
         { key: "v01", label: "Tomo 1", path: rel, format: ext.slice(1) as Unit["format"], volume: 1 },
-      ]));
+      ], posterIn(base, "pages", [`${slug}-poster`, `${slug}.poster`])));
       continue;
     }
     if (!d.isDirectory()) continue;
@@ -210,7 +247,7 @@ function scanPages(root: string): Work[] {
     if (!units.length && !Object.keys(meta).length) continue;
     units.sort((a, b) => a.volume! - b.volume!);
     const fallback: WorkType = meta.reading === "rtl" ? "manga" : "comic";
-    out.push(work(root, "pages", d.name, join("pages", d.name), meta, fallback, units));
+    out.push(work(root, "pages", d.name, join("pages", d.name), meta, fallback, units, posterIn(dir, join("pages", d.name), POSTER_STEMS)));
   }
   return out;
 }
@@ -223,7 +260,8 @@ function scanStills(root: string): Work[] {
       const dir = join(base, d.name);
       const meta = readMeta(join(dir, "work.yaml"), join(base, `${d.name}.yaml`));
       const rel = join("stills", d.name);
-      return work(root, "stills", d.name, rel, meta, "film", [{ key: "stills", label: "Capturas", path: rel, format: "images" }]);
+      return work(root, "stills", d.name, rel, meta, "film", [{ key: "stills", label: "Capturas", path: rel, format: "images" }],
+        posterIn(dir, rel, POSTER_STEMS));
     });
 }
 

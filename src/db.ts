@@ -59,6 +59,53 @@ export interface Progress {
   updatedAt: string;
 }
 
+/** What TMDB or AniList say about a work, cached; `match` says how it was found. */
+export interface Details {
+  source: "tmdb" | "anilist";
+  /** "movie/603", "tv/1399", "anime/30002", "manga/30002". */
+  extId: string;
+  title: string | null;
+  overview: string | null;
+  genres: string[];
+  credits: string[];
+  runtime: number | null;
+  year: number | null;
+  url: string | null;
+  posterUrl: string | null;
+}
+
+export interface MetaRow {
+  workId: string;
+  /** "id": from the yaml's ids; "auto": by title and year; "owner": picked by hand; "none": nothing found or turned off. */
+  match: "id" | "auto" | "owner" | "none";
+  details: Details | null;
+  /** The downloaded poster, under the cache folder. */
+  posterFile: string | null;
+  fetchedAt: string;
+}
+
+/** A profile's audio and subtitles for a work, by language so they carry from one episode to the next. */
+export interface TrackChoice {
+  audio: { lang: string | null; n: number } | null;
+  subtitle: { lang: string | null; label: string | null } | "off" | null;
+}
+
+export interface YearStats {
+  profile: string;
+  year: number;
+  years: number[];
+  seconds: number;
+  pages: number;
+  unitsFinished: number;
+  worksFinished: string[];
+  worksTouched: number;
+  daysActive: number;
+  longestStreak: number;
+  byMonth: { seconds: number; pages: number; finished: number }[];
+  byType: Record<string, number>;
+  top: { workId: string; seconds: number; pages: number }[];
+}
+
 export interface Event {
   id: number;
   at: string;
@@ -82,6 +129,12 @@ export function profileId(name: string): string {
 
 type Row = Record<string, unknown>;
 
+/** The calendar day where the server is (America/Argentina here): "2026-10-06". */
+export function localDay(d: Date): string {
+  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
+  return z.toISOString().slice(0, 10);
+}
+
 function toProgress(r: Row): Progress {
   return {
     profile: String(r.profile), workId: String(r.work_id), unitKey: String(r.unit_key), position: Number(r.position),
@@ -102,6 +155,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, type TEXT NOT NULL,
         work_id TEXT NOT NULL, unit_key TEXT);
+      CREATE TABLE IF NOT EXISTS meta (work_id TEXT PRIMARY KEY, match TEXT NOT NULL, details TEXT, poster_file TEXT,
+        fetched_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS tracks (profile TEXT NOT NULL, work_id TEXT NOT NULL, choice TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (profile, work_id));
+      CREATE TABLE IF NOT EXISTS activity (profile TEXT NOT NULL, day TEXT NOT NULL, work_id TEXT NOT NULL, unit_key TEXT NOT NULL,
+        seconds REAL NOT NULL DEFAULT 0, pages INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (profile, day, work_id, unit_key));
     `);
     this.migrate();
     this.db.prepare("INSERT OR IGNORE INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
@@ -177,14 +236,17 @@ export class Store {
   removeProfile(id: string): void {
     if (id === OWNER) throw new Error("the owner's profile stays");
     this.db.prepare("DELETE FROM progress WHERE profile = ?").run(id);
+    this.db.prepare("DELETE FROM activity WHERE profile = ?").run(id);
+    this.db.prepare("DELETE FROM tracks WHERE profile = ?").run(id);
     this.db.prepare("DELETE FROM profiles WHERE id = ?").run(id);
   }
 
   // --- progress ------------------------------------------------------------------------------
   save(workId: string, unitKey: string, position: number, total: number, kind: "pages" | "video",
        now = new Date(), profile = OWNER): { progress: Progress; newlyFinished: boolean } {
-    const before = this.db.prepare("SELECT finished FROM progress WHERE profile = ? AND work_id = ? AND unit_key = ?")
+    const before = this.db.prepare("SELECT finished, position, updated_at FROM progress WHERE profile = ? AND work_id = ? AND unit_key = ?")
       .get(profile, workId, unitKey) as Row | undefined;
+    this.track(profile, workId, unitKey, kind, before, position, now);
     const finished = isFinished(position, total, kind) || Number(before?.finished ?? 0) === 1;
     const at = now.toISOString();
     this.db.prepare(`INSERT INTO progress (profile, work_id, unit_key, position, total, finished, updated_at)
@@ -194,6 +256,131 @@ export class Store {
     const newlyFinished = finished && Number(before?.finished ?? 0) !== 1;
     if (newlyFinished) this.event("finished", workId, unitKey, now, profile);
     return { progress: { profile, workId, unitKey, position, total, finished, updatedAt: at }, newlyFinished };
+  }
+
+  /**
+   * Time watched and pages read, by day, for "Tu año": what a save moved forward since the last one.
+   * A jump (seeking ahead, skipping pages) counts only as much as the clock allows.
+   */
+  private track(profile: string, workId: string, unitKey: string, kind: "pages" | "video", before: Row | undefined,
+                position: number, now: Date): void {
+    let seconds = 0, pages = 0;
+    if (!before) {
+      if (kind === "video" && position > 0 && position <= 30) seconds = position;
+      if (kind === "pages" && position >= 1 && position <= 3) pages = position;
+    } else {
+      const moved = position - Number(before.position);
+      const wall = (now.getTime() - Date.parse(String(before.updated_at))) / 1000;
+      if (kind === "video" && moved > 0 && moved <= Math.min(3600, wall + 15)) seconds = moved;
+      if (kind === "pages" && moved > 0 && moved <= Math.min(40, Math.max(2, wall / 2))) pages = Math.round(moved);
+    }
+    if (!seconds && !pages) return;
+    this.db.prepare(`INSERT INTO activity (profile, day, work_id, unit_key, seconds, pages) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (profile, day, work_id, unit_key) DO UPDATE SET seconds = seconds + excluded.seconds, pages = pages + excluded.pages`)
+      .run(profile, localDay(now), workId, unitKey, seconds, pages);
+  }
+
+  /**
+   * A profile's year: time watched, pages read, what was finished, by month and by type. Progress
+   * from before 0.6 (no activity log) counts once, on the day it was last saved: a finished video
+   * as its running time, pages as the page reached.
+   */
+  stats(profile: string, year: number, lookup: (workId: string) => { type: string; units: number } | undefined): YearStats {
+    const rows = this.db.prepare("SELECT day, work_id, seconds, pages FROM activity WHERE profile = ?").all(profile) as Row[];
+    const logged = new Set((this.db.prepare("SELECT DISTINCT work_id || '|' || unit_key AS k FROM activity WHERE profile = ?")
+      .all(profile) as Row[]).map((r) => String(r.k)));
+    const items: { day: string; workId: string; seconds: number; pages: number }[] = rows.map((r) => ({
+      day: String(r.day), workId: String(r.work_id), seconds: Number(r.seconds), pages: Number(r.pages) }));
+    for (const p of this.all(profile)) {
+      if (logged.has(`${p.workId}|${p.unitKey}`)) continue;
+      const video = p.unitKey === "film" || /^s\d+e\d+$/.test(p.unitKey);
+      items.push({ day: localDay(new Date(p.updatedAt)), workId: p.workId,
+        seconds: video ? (p.finished ? p.total : p.position) : 0, pages: video ? 0 : Math.round(p.finished ? p.total : p.position) });
+    }
+    const finishedEvents = this.db.prepare("SELECT at, work_id, unit_key FROM events WHERE type = 'finished' AND profile = ?")
+      .all(profile) as Row[];
+    const years = new Set<number>([...items.map((i) => Number(i.day.slice(0, 4))),
+      ...finishedEvents.map((e) => Number(localDay(new Date(String(e.at))).slice(0, 4)))]);
+    const prefix = `${year}-`;
+    const byMonth = Array.from({ length: 12 }, () => ({ seconds: 0, pages: 0, finished: 0 }));
+    const perWork = new Map<string, { seconds: number; pages: number }>();
+    const days = new Set<string>();
+    let seconds = 0, pages = 0;
+    for (const i of items) {
+      if (!i.day.startsWith(prefix)) continue;
+      const m = byMonth[Number(i.day.slice(5, 7)) - 1]!;
+      m.seconds += i.seconds;
+      m.pages += i.pages;
+      seconds += i.seconds;
+      pages += i.pages;
+      days.add(i.day);
+      const w = perWork.get(i.workId) ?? { seconds: 0, pages: 0 };
+      w.seconds += i.seconds;
+      w.pages += i.pages;
+      perWork.set(i.workId, w);
+    }
+    let unitsFinished = 0;
+    const lastFinish = new Map<string, string>();
+    for (const e of finishedEvents) {
+      const day = localDay(new Date(String(e.at)));
+      if (!day.startsWith(prefix)) continue;
+      unitsFinished++;
+      byMonth[Number(day.slice(5, 7)) - 1]!.finished++;
+      lastFinish.set(String(e.work_id), day);
+    }
+    // A work counts as finished this year when all its units are finished and the last of them was this year.
+    const finishedUnits = new Map<string, number>();
+    for (const p of this.all(profile)) if (p.finished) finishedUnits.set(p.workId, (finishedUnits.get(p.workId) ?? 0) + 1);
+    const worksFinished = [...lastFinish.entries()]
+      .filter(([w]) => { const l = lookup(w); return !!l && l.units > 0 && (finishedUnits.get(w) ?? 0) >= l.units; })
+      .sort((a, b) => b[1].localeCompare(a[1])).map(([w]) => w);
+    const byType: Record<string, number> = {};
+    for (const w of perWork.keys()) {
+      const t = lookup(w)?.type;
+      if (t) byType[t] = (byType[t] ?? 0) + 1;
+    }
+    const sorted = [...days].sort();
+    let longestStreak = 0, run = 0, prev = "";
+    for (const d of sorted) {
+      run = prev && Date.parse(`${d}T12:00:00Z`) - Date.parse(`${prev}T12:00:00Z`) === 86_400_000 ? run + 1 : 1;
+      longestStreak = Math.max(longestStreak, run);
+      prev = d;
+    }
+    const top = [...perWork.entries()].map(([workId, v]) => ({ workId, ...v }))
+      .sort((a, b) => (b.seconds + b.pages * 60) - (a.seconds + a.pages * 60)).slice(0, 5);
+    return { profile, year, years: [...years].filter(Boolean).sort((a, b) => b - a), seconds: Math.round(seconds), pages, unitsFinished,
+      worksFinished, worksTouched: perWork.size, daysActive: days.size, longestStreak, byMonth, byType, top };
+  }
+
+  // --- metadata (TMDB, AniList) ----------------------------------------------------------------
+  meta(workId: string): MetaRow | null {
+    const r = this.db.prepare("SELECT * FROM meta WHERE work_id = ?").get(workId) as Row | undefined;
+    if (!r) return null;
+    return { workId, match: String(r.match) as MetaRow["match"], details: r.details ? JSON.parse(String(r.details)) as Details : null,
+      posterFile: r.poster_file ? String(r.poster_file) : null, fetchedAt: String(r.fetched_at) };
+  }
+
+  setMeta(row: Omit<MetaRow, "fetchedAt">, now = new Date()): void {
+    this.db.prepare(`INSERT INTO meta (work_id, match, details, poster_file, fetched_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (work_id) DO UPDATE SET match = excluded.match, details = excluded.details, poster_file = excluded.poster_file,
+      fetched_at = excluded.fetched_at`)
+      .run(row.workId, row.match, row.details ? JSON.stringify(row.details) : null, row.posterFile, now.toISOString());
+  }
+
+  forgetMeta(workId: string): void {
+    this.db.prepare("DELETE FROM meta WHERE work_id = ?").run(workId);
+  }
+
+  // --- audio and subtitles, per profile and work ------------------------------------------------
+  tracks(profile: string, workId: string): TrackChoice | null {
+    const r = this.db.prepare("SELECT choice FROM tracks WHERE profile = ? AND work_id = ?").get(profile, workId) as Row | undefined;
+    return r ? JSON.parse(String(r.choice)) as TrackChoice : null;
+  }
+
+  setTracks(profile: string, workId: string, choice: TrackChoice, now = new Date()): void {
+    this.db.prepare(`INSERT INTO tracks (profile, work_id, choice, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT (profile, work_id) DO UPDATE SET choice = excluded.choice, updated_at = excluded.updated_at`)
+      .run(profile, workId, JSON.stringify(choice), now.toISOString());
   }
 
   forWork(workId: string, profile = OWNER): Progress[] {
