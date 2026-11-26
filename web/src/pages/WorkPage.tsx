@@ -5,7 +5,7 @@ import { EditSheet } from "./Edit.tsx";
 import { Header, Img, thumb } from "./parts.tsx";
 
 /** Who made it, by what the work is: a film's director, a series' creators, an anime's studio, a book's author. */
-const CREDIT: Record<WorkDetail["type"], string> = { film: "Dirección", series: "Creación", anime: "Estudio", manga: "Autoría", comic: "Autoría" };
+const CREDIT: Record<WorkDetail["type"], string> = { film: "Dirección", series: "Creación", anime: "Estudio", manga: "Autoría", comic: "Autoría", book: "Autoría" };
 
 function Overview({ text }: { text: string }) {
   const [open, setOpen] = useState(false);

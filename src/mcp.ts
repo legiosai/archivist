@@ -21,6 +21,7 @@ export interface Catalog {
   saveProgress(id: string, unit: string, position: number, total: number, profile: string): unknown;
   pages(id: string, unit: string): Promise<number>;
   page(id: string, unit: string, n: number, maxWidth: number): Promise<{ type: string; data: Buffer }>;
+  pageText(id: string, unit: string, n: number): Promise<string>;
   duration(id: string, unit: string): Promise<number>;
   frame(id: string, unit: string, seconds: number, maxWidth: number): Promise<Buffer>;
   events(since: number): unknown;
@@ -39,7 +40,7 @@ const num = (description: string, extra: Json = {}) => ({ type: "number", descri
 const PROFILE = str("Whose progress to use (a profile id from list_profiles). Default: the owner.");
 const WORK = str('A work id as search_library or list_works return it, e.g. "pages/berserk" or "video/dark".');
 const UNIT = str('A unit key from get_work: "v01" (a volume), "s01e02" (an episode), "film".');
-const TYPE = { type: "string", enum: ["film", "series", "anime", "manga", "comic"], description: "Only works of this type." };
+const TYPE = { type: "string", enum: ["film", "series", "anime", "manga", "comic", "book"], description: "Only works of this type." };
 
 const TOOLS = [
   {
@@ -86,11 +87,19 @@ const TOOLS = [
   },
   {
     name: "get_page", title: "Look at a page",
-    description: "One page of a volume (manga, comic) as an image, scaled down to max_width pixels wide "
+    description: "One page of a volume (manga, comic, book) as an image, scaled down to max_width pixels wide "
       + "(default 1200). Pages are numbered from 1; the result says how many there are.",
     inputSchema: { type: "object", properties: { work: WORK, unit: UNIT,
       page: num("Page number, from 1.", { minimum: 1 }),
       max_width: num("Scale the page down to this width (default 1200, 0 = as stored).", { minimum: 0, maximum: 4000 }) },
+      required: ["work", "unit", "page"] },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "get_page_text", title: "Read a page",
+    description: "The words of one page of a book (a PDF), as text. Cheaper than get_page when the page is prose. "
+      + "Empty for a scanned page, and an error for manga and comics, whose pages are only images: use get_page there.",
+    inputSchema: { type: "object", properties: { work: WORK, unit: UNIT, page: num("Page number, from 1.", { minimum: 1 }) },
       required: ["work", "unit", "page"] },
     annotations: { readOnlyHint: true },
   },
@@ -119,9 +128,10 @@ const TOOLS = [
   },
 ];
 
-const INSTRUCTIONS = "archivist is a personal library of films, series, anime, manga and comics, with where each "
+const INSTRUCTIONS = "archivist is a personal library of films, series, anime, manga, comics and books, with where each "
   + "person stopped. Find a work with search_library, open it with get_work to see its units, then look at pages "
-  + "(get_page) or frames (get_frame). Progress is per profile; without one it is the owner's. Single pages and "
+  + "(get_page; get_page_text for the words of a book) or frames (get_frame). To help someone with what they are "
+  + "reading, get_progress says the page they are on. Progress is per profile; without one it is the owner's. Single pages and "
   + "frames only: there is no way to get a clip, the audio or a whole file, by design.";
 
 function text(value: unknown, structured = true): ToolResult {
@@ -170,6 +180,13 @@ async function call(cat: Catalog, name: string, args: Json, fallbackProfile: str
       const page = await cat.page(id, unit, n, number(args, "max_width", 1200));
       return { content: [{ type: "text", text: `Page ${n} of ${count} (${id}, ${unit}).` },
         { type: "image", data: page.data.toString("base64"), mimeType: page.type }] };
+    }
+    case "get_page_text": {
+      const id = arg(args, "work"), unit = arg(args, "unit"), n = number(args, "page");
+      const count = await cat.pages(id, unit);
+      if (!Number.isInteger(n) || n < 1 || n > count) throw new ToolError(`page must be between 1 and ${count}`);
+      const words = await cat.pageText(id, unit, n);
+      return text({ work: id, unit, page: n, count, text: words });
     }
     case "get_frame": {
       const id = arg(args, "work"), unit = arg(args, "unit"), t = number(args, "seconds");

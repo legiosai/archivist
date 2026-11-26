@@ -59,8 +59,10 @@ in its yaml, else by title and year, kept only when both agree.
 
 | | |
 |---|---|
-| `GET /api/v1/units/:kind/:slug/:unit/pages` | `{count}` |
+| `GET /api/v1/units/:kind/:slug/:unit/pages` | `{count, text, assistant}`: how many pages, whether they carry words (a PDF), and whether there is a model to ask about them. |
 | `GET /api/v1/units/:kind/:slug/:unit/pages/:n` | Page `n` (1-based), as an image; `?w=` for a small copy. |
+| `GET /api/v1/units/:kind/:slug/:unit/pages/:n/text` | `{page, count, text}`: the words of a PDF page, empty for a scanned one. `400` for a unit whose pages are images. |
+| `POST /api/v1/units/:kind/:slug/:unit/ask` | `{page, question, history?}` → `{answer, model, pages, usage}`. Asks the owner's model (`ARCHIVIST_ASSISTANT_KEY`) about the page on screen; it is sent that page and the two before it (`pages` says which), never a later one. `history` is the earlier turns, `{role: user \| assistant, content}`; the last 8 are used. `404` when the assistant is off, `400` when the pages carry no text, `502` or `504` when the model does not answer. |
 | `GET /api/v1/units/:kind/:slug/:unit/info?audio=` | Video: `{duration, ready, allowed, job, audioTrack, audios, subtitles}`; `allowed` is false through the public proxy (video stays home). `audios`: `{n, lang, title, codec, channels, default}`. `subtitles`: files beside the video and text streams inside it, `{index, label, lang, forced, kind, href}`. |
 | `POST /api/v1/units/:kind/:slug/:unit/prepare?audio=` | Video the browser can't play, or with another audio track: convert it once (ffmpeg). Each audio track is its own copy. |
 | `GET /api/v1/units/:kind/:slug/:unit/video?audio=` | The video, with HTTP ranges; `409 {preparing, progress}` while it converts. |
@@ -151,6 +153,7 @@ claude mcp add --transport http archivist http://archivist:8780/mcp --header "Au
 | `get_progress` | `{profile?}` → the last unit touched in each work. |
 | `set_progress` | `{work, unit, position, total, profile?}` |
 | `get_page` | `{work, unit, page, max_width?}` → the page as an image (1200 px wide by default). |
+| `get_page_text` | `{work, unit, page}` → the words of a book's page (a PDF). |
 | `get_frame` | `{work, unit, seconds, max_width?}` → one still as JPEG. |
 | `recent_events` | `{since?}` → finished units, works added or removed. |
 | `list_profiles` | `{}` |

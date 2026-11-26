@@ -292,6 +292,44 @@ button.link:hover { color: var(--fg); background: none; }
 .switch.on { background: var(--accent); }
 .switch.on::after { transform: translateX(16px); }
 .menu-note { margin: 2px 0 0; padding: 6px 10px 4px; }
+/* The panel to ask about the page: beside the page on a wide screen, a sheet from below on a phone. */
+.reader.asking { padding-right: min(420px, 38vw); }
+.reader-bar .menu-wrap { display: flex; gap: 2px; }
+.ask { position: fixed; top: 0; right: 0; bottom: 0; z-index: 4; width: min(420px, 38vw); display: flex; flex-direction: column;
+  background: var(--solid); border-left: 1px solid var(--line); }
+.ask header { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
+.ask header strong { font: 600 17px/1 var(--display); margin-right: auto; }
+.ask-lines { position: relative; flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; }
+.ask-empty { margin: auto 0; display: grid; gap: 8px; }
+.ask-empty p { margin: 0 0 6px; color: var(--fg-2); }
+.ask-starter { justify-content: flex-start; text-align: left; border-radius: var(--radius-sm); font-size: 14px; padding: 10px 12px; }
+.ask-line { max-width: 94%; }
+.ask-line p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.55; }
+.ask-line p + p, .ask-line p + pre, .ask-line pre + p { margin-top: 10px; }
+.ask-line code, .ask-line pre { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: rgba(255, 255, 255, 0.07); border-radius: 6px; }
+.ask-line code { padding: 1px 5px; }
+.ask-line pre { margin: 0; padding: 10px 12px; overflow-x: auto; white-space: pre; color: var(--fg); }
+.ask-line strong { color: var(--fg); font-weight: 600; }
+.ask-line.user { align-self: flex-end; padding: 9px 13px; border-radius: 14px 14px 4px 14px; background: rgba(240, 181, 77, 0.14);
+  border: 1px solid rgba(240, 181, 77, 0.28); }
+.ask-line.assistant { align-self: flex-start; color: var(--fg-2); }
+.ask-line.pending p { color: var(--muted); animation: askwait 1.2s ease-in-out infinite; }
+.ask-page { display: block; font: 600 11px/1 var(--sans); color: var(--accent); margin-bottom: 5px; font-variant-numeric: tabular-nums; }
+.ask-form { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px 6px; border-top: 1px solid var(--line); }
+.ask-form textarea { flex: 1; resize: none; min-height: 46px; max-height: 160px; padding: 10px 12px; font: 400 14.5px/1.45 var(--sans);
+  color: var(--fg); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line-2); border-radius: var(--radius-sm); outline: none; }
+.ask-form textarea:focus { border-color: var(--accent); }
+.ask-form .btn { padding: 12px; }
+.ask-form .btn .icon { width: 18px; height: 18px; }
+.ask-note { margin: 0; padding: 2px 14px 12px; }
+@keyframes askwait { 50% { opacity: 0.45; } }
+@media (max-width: 820px) {
+  .reader.asking { padding-right: 0; padding-bottom: 56vh; }
+  .reader.asking .stage { height: calc(44vh - 60px); height: calc(44dvh - 60px); }
+  .reader.asking .reader-foot { display: none; }
+  .ask { top: auto; left: 0; width: auto; height: 56vh; height: 56dvh; border-left: none; border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0; }
+}
 .strip { display: flex; flex-direction: column; align-items: center; }
 .strip img { width: min(100%, 900px); display: block; }
 .next-unit { margin: 28px auto 72px; }

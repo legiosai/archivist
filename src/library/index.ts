@@ -81,7 +81,7 @@ export class Library {
     if (!TYPES.includes(w.type)) throw new Error(`type must be one of ${TYPES.join(", ")}`);
     if (!w.title?.trim()) throw new Error("a work needs a title");
     const slug = slugify(w.slug || w.title);
-    const kind = w.type === "manga" || w.type === "comic" ? "pages" : "video";
+    const kind = w.type === "manga" || w.type === "comic" || w.type === "book" ? "pages" : "video";
     const meta: Record<string, unknown> = { title: w.title.trim(), type: w.type };
     if (w.year) meta.year = w.year;
     if (w.originalTitle) meta.original_title = w.originalTitle;

@@ -31,7 +31,7 @@ export function openapi(version: string, server?: string): Json {
     openapi: "3.1.0",
     info: {
       title: "archivist", version,
-      summary: "A personal library of films, series, anime, manga and comics, with where each person stopped.",
+      summary: "A personal library of films, series, anime, manga, comics and books, with where each person stopped.",
       description: "Pages one at a time and single frames; there is no endpoint for a clip, the audio or a whole video, on purpose. "
         + "Agents can also use the MCP server at /mcp (same token).",
       license: { name: "MIT", identifier: "MIT" },
@@ -103,7 +103,21 @@ export function openapi(version: string, server?: string): Json {
       },
       "/api/v1/rescan": { post: op("works", "Read the folders again now") },
       "/api/v1/units/{kind}/{slug}/{unit}/pages": { get: op("units", "Page count", { parameters: UNIT },
-        { 200: ok("Count", { type: "object", properties: { count: { type: "integer" } } }) }) },
+        { 200: ok("Count", { type: "object", properties: { count: { type: "integer" },
+          text: { type: "boolean", description: "The pages carry words (a PDF)." },
+          assistant: { type: "boolean", description: "There is a model to ask about them (ARCHIVIST_ASSISTANT_KEY)." } } }) }) },
+      "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}/text": { get: op("units", "The words of one page of a PDF (empty for a scanned page)", {
+        parameters: [...UNIT, path("n", "Page number, from 1.")] }, { 200: ok("Text", { type: "object", properties: {
+          page: { type: "integer" }, count: { type: "integer" }, text: { type: "string" } } }), 400: ok("The unit's pages are images"), 404: ok("No such page") }) },
+      "/api/v1/units/{kind}/{slug}/{unit}/ask": { post: op("units", "Ask the owner's model about the page being read; it gets that page and the two before it", {
+        parameters: UNIT, requestBody: jsonBody({ type: "object", required: ["page", "question"], properties: {
+          page: { type: "integer", description: "The page on screen." }, question: { type: "string" },
+          history: { type: "array", description: "Earlier turns of this conversation, oldest first (the last 8 are used).",
+            items: { type: "object", properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string" } } } } } }) },
+        { 200: ok("Answer", { type: "object", properties: { answer: { type: "string" }, model: { type: "string" },
+          pages: { type: "array", items: { type: "integer" }, description: "The pages that were sent." },
+          usage: { type: ["object", "null"], properties: { input: { type: "integer" }, output: { type: "integer" } } } } }),
+          400: ok("No question, or pages with no text"), 404: ok("The assistant is off"), 502: ok("The model did not answer") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/pages/{n}": { get: op("units", "One page (from 1), as stored or scaled with ?w=", {
         parameters: [...UNIT, path("n", "Page number, from 1."), query("w", "A smaller copy this many pixels wide (snaps to 160, 320, 480, 640, 960 or 1280), cached.", { type: "integer" })] }, { 200: image("The page"), 404: ok("No such page") }) },
       "/api/v1/units/{kind}/{slug}/{unit}/info": { get: op("units", "A video's running time, its audio tracks and subtitles, and whether it plays now",
@@ -161,7 +175,7 @@ export function openapi(version: string, server?: string): Json {
     components: {
       securitySchemes: { bearer: { type: "http", scheme: "bearer", description: "ARCHIVIST_TOKEN" } },
       schemas: {
-        WorkType: { type: "string", enum: ["film", "series", "anime", "manga", "comic"] },
+        WorkType: { type: "string", enum: ["film", "series", "anime", "manga", "comic", "book"] },
         Work: { type: "object", properties: {
           id: { type: "string", examples: ["pages/berserk"] }, slug: { type: "string" }, kind: { type: "string", enum: ["pages", "video", "stills"] },
           type: ref("WorkType"), title: { type: "string" }, year: { type: ["integer", "null"] }, originalTitle: { type: ["string", "null"] },
@@ -192,7 +206,7 @@ export function openapi(version: string, server?: string): Json {
 export function llmsTxt(base: string): string {
   return `# archivist
 
-> A personal library of films, series, anime, manga and comics, with a reader, a player, and
+> A personal library of films, series, anime, manga, comics and books, with a reader, a player, and
 > where each person stopped. Open source (MIT): https://github.com/legiosai/archivist
 
 Everything needs the owner's token: \`Authorization: Bearer <token>\`.
@@ -200,8 +214,8 @@ Everything needs the owner's token: \`Authorization: Bearer <token>\`.
 ## For agents
 
 - MCP server (Streamable HTTP): ${base}/mcp
-  Tools: search_library, list_works, get_work, get_progress, set_progress, get_page, get_frame,
-  recent_events, list_profiles.
+  Tools: search_library, list_works, get_work, get_progress, set_progress, get_page, get_page_text,
+  get_frame, recent_events, list_profiles.
   Claude Code: \`claude mcp add --transport http archivist ${base}/mcp --header "Authorization: Bearer $ARCHIVIST_TOKEN"\`
 - OpenAPI 3.1: ${base}/api/v1/openapi.json
 - Human docs: https://github.com/legiosai/archivist/blob/main/docs/api.md
@@ -211,6 +225,7 @@ Everything needs the owner's token: \`Authorization: Bearer <token>\`.
 - A work's id is \`<kind>/<slug>\`: \`pages/berserk\`, \`video/dark\`. Its units are volumes (\`v01\`),
   episodes (\`s01e02\`) or the film (\`film\`).
 - Find a work: GET /api/v1/search?q=berserk. Open it: GET /api/v1/works/pages/berserk.
+- Read a book's page as text: GET /api/v1/units/pages/how-linux-works/v01/pages/42/text.
 - Look at a page: GET /api/v1/units/pages/berserk/v01/pages/1. A frame: GET /api/v1/units/video/dark/s01e01/frame?t=600.
 - Progress belongs to a profile (\`?profile=\` or \`X-Archivist-Profile\`); without one it is the owner's.
   Save it: PUT /api/v1/progress/pages/berserk/v01 {"position": 12, "total": 200}.

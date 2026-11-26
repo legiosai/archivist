@@ -22,18 +22,23 @@ MIT
 
 </div>
 
-> **Status: 0.7.** It reads, plays, remembers and takes uploads, with a profile for each person,
-> posters and details from TMDB or AniList if you turn them on, a year in review, OPDS for phones
-> and an API and MCP server for tools. Spanish UI first.
+> **Status: 0.8.** It reads, plays, remembers and takes uploads, with a profile for each person,
+> posters and details from TMDB or AniList if you turn them on, a model to ask about the page of
+> a book if you turn it on, a year in review, OPDS for phones and an API and MCP server for tools. Spanish UI first.
 > [The plan](docs/plan.md) is complete; what changed is in the [changelog](CHANGELOG.md).
 
 ## What it is
 
 A self-hosted library for what you already have on disk:
 
-- **A reader** for manga and comics (CBZ, ZIP, PDF, folders of images):
+- **A reader** for manga, comics and books (CBZ, ZIP, PDF, folders of images):
   right-to-left, left-to-right, vertical and double-page. It remembers the
   volume, the chapter and the page.
+- **Books** as PDF, a page at a time like everything else, on the page where
+  you stopped on any device. If you turn it on, a panel beside the page asks a
+  model of your choice (DeepSeek, OpenRouter, a local Ollama: anything that
+  speaks chat completions) about what you are reading. It gets the page on
+  screen and the two before it, and nothing else of the book.
 - **A player** for films, series and anime: what the browser plays directly,
   the rest remuxed on the fly with ffmpeg, subtitles included (beside the file or
   inside it). Pick the audio track and the subtitles; each profile's choice carries
@@ -63,6 +68,7 @@ library/
   video/<work>.mp4 + <work>.yaml          a film (its poster: <work>-poster.jpg)
   video/<work>/S01E01.mkv … + work.yaml    a series or an anime (poster.jpg in the folder)
   pages/<work>/vol-01.cbz … + work.yaml    a manga or a comic (poster.jpg in the folder)
+  pages/<work>/<work>.pdf + work.yaml      a book: `type: book` in the yaml
 ```
 
 The yaml can also say what the work is about, and that always wins over a lookup:
@@ -107,6 +113,11 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 | `ARCHIVIST_PROXIED_VIDEO` | off | Serve video to requests that came through the public proxy. Off by default: at home, video goes over the LAN or Tailscale. |
 | `ARCHIVIST_METADATA` | — | Where to look works up: `tmdb`, `anilist`, or both. Off by default: then nothing leaves the server. When on, the server (never the browser) sends a work's title and year once, and keeps what comes back. |
 | `ARCHIVIST_TMDB_TOKEN` | — | TMDB's API read access token (or a v3 API key), free at themoviedb.org. AniList needs none. |
+| `ARCHIVIST_ASSISTANT_KEY` | — | The API key of a model to ask about the page of a book. Off without it: then no text leaves the server. When on, each question goes with the work's title and the words of the page on screen and the two before it; the key stays on the server. |
+| `ARCHIVIST_ASSISTANT_URL` | `https://api.deepseek.com` | The API's base URL; `/chat/completions` is added. Vercel AI Gateway: `https://ai-gateway.vercel.sh/v1`. OpenRouter: `https://openrouter.ai/api/v1`. Ollama: `http://localhost:11434/v1` (any key). |
+| `ARCHIVIST_ASSISTANT_MODEL` | `deepseek-chat` | The model's name, as that API calls it (`deepseek/deepseek-v4-flash` on a gateway). |
+
+PDF text needs poppler's `pdftotext`, which comes with the `pdftoppm` the reader already uses.
 
 ## API
 
@@ -117,14 +128,15 @@ described in OpenAPI 3.1 at `/api/v1/openapi.json`.
 ## For agents
 
 archivist is an MCP server at `/mcp` (Streamable HTTP, the same token). An agent can search the
-library, open a work, look at a page or a frame, and read or save where someone is:
+library, open a work, look at a page or a frame, read the words of a book's page, and read or
+save where someone is (so "explain the page I'm on" works from any agent):
 
 ```sh
 claude mcp add --transport http archivist https://your-server/mcp --header "Authorization: Bearer $ARCHIVIST_TOKEN"
 ```
 
 Tools: `search_library`, `list_works`, `get_work`, `get_progress`, `set_progress`, `get_page`,
-`get_frame`, `recent_events`, `list_profiles`. `/llms.txt` sums it up for a model.
+`get_page_text`, `get_frame`, `recent_events`, `list_profiles`. `/llms.txt` sums it up for a model.
 
 ## On the internet
 

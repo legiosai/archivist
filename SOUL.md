@@ -16,8 +16,12 @@ files scores 0: the file manager knows what you have, not where you are.
   disk. Metadata (titles, covers, years) may come from TMDB or AniList; the
   pages and the frames never come from anywhere but the owner's files.
 - **No account, no cloud, no telemetry.** It runs on the owner's machine and
-  answers on their network. Nothing leaves it except the metadata lookups, each
-  to the same public API a person would query by hand.
+  answers on their network. Nothing leaves it except what the owner turns on,
+  each off by default: the metadata lookups, to the same public API a person
+  would query by hand; and the reading assistant, which sends a question, the
+  work's title and the words of the page on screen and the two before it to the
+  model the owner configured with their own key. Never a page further on than
+  where the reader is, never a whole work, never an image or a frame.
 - **The folders are the truth.** The library is a layout on disk that a person
   can read, copy with rsync and back up without archivist running. The database
   holds what the disk cannot: where you are, what you finished, the metadata

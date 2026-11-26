@@ -1,7 +1,7 @@
 // The UI talks to the same API as any tool. After login the browser holds a session cookie
 // (HttpOnly, revocable from Perfiles); the token itself never leaves the login form.
 
-export type WorkType = "film" | "series" | "anime" | "manga" | "comic";
+export type WorkType = "film" | "series" | "anime" | "manga" | "comic" | "book";
 
 export interface Progress {
   workId: string;
@@ -171,8 +171,16 @@ export function saveProgress(workId: string, key: string, position: number, tota
 }
 
 export const TYPE_LABEL: Record<WorkType, string> = {
-  film: "Película", series: "Serie", anime: "Anime", manga: "Manga", comic: "Cómic",
+  film: "Película", series: "Serie", anime: "Anime", manga: "Manga", comic: "Cómic", book: "Libro",
 };
+
+export interface AskTurn { role: "user" | "assistant"; content: string }
+export interface AskAnswer { answer: string; model: string; pages: number[]; usage: { input: number; output: number } | null }
+
+/** Ask the server's model about a page; it reads that page and the two before it. */
+export function ask(workId: string, key: string, page: number, question: string, history: AskTurn[]): Promise<AskAnswer> {
+  return api<AskAnswer>(`${unitPath(workId, key)}/ask`, { method: "POST", body: JSON.stringify({ page, question, history }) });
+}
 
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

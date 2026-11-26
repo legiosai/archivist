@@ -109,8 +109,8 @@ function Data({ work, onChange, onAuth }: { work: WorkDetail; onChange: (w: Work
     return (
       <div className="edit-data">
         <p>Para traer la sinopsis, los géneros y una portada, archivist puede buscar la obra en
-          {work.type === "manga" || work.type === "comic" ? " AniList" : " TMDB (películas y series) o AniList (anime y manga)"}.
-          Está apagado: se activa en el servidor con <code>ARCHIVIST_METADATA</code>{work.type === "comic" ? ", y para cómics no hay fuente." : "."}</p>
+          {work.type === "manga" || work.type === "comic" || work.type === "book" ? " AniList" : " TMDB (películas y series) o AniList (anime y manga)"}.
+          Está apagado: se activa en el servidor con <code>ARCHIVIST_METADATA</code>{work.type === "comic" || work.type === "book" ? ", y para cómics y libros no hay fuente." : "."}</p>
         <p className="faint small">También podés escribirlos a mano en el yaml de la obra: <code>overview</code>, <code>genres</code> y
           <code> director</code>, <code>author</code> o <code>studio</code>. Eso siempre tiene prioridad.</p>
       </div>

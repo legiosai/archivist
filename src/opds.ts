@@ -11,7 +11,7 @@ import type { Work } from "./library/scan.ts";
 
 const NAV = "application/atom+xml;profile=opds-catalog;kind=navigation";
 const ACQ = "application/atom+xml;profile=opds-catalog;kind=acquisition";
-const TYPES_ES: Record<string, string> = { manga: "Manga", comic: "Cómics" };
+const TYPES_ES: Record<string, string> = { manga: "Manga", comic: "Cómics", book: "Libros" };
 const FILE_TYPES: Record<string, string> = { cbz: "application/vnd.comicbook+zip", zip: "application/zip", pdf: "application/pdf" };
 
 function esc(s: string): string {
@@ -49,7 +49,7 @@ export function rootFeed(library: Library, now = new Date(), q = ""): string {
   const at = now.toISOString();
   const works = library.list().filter(readable);
   const entries = [navEntry("urn:archivist:continue", "Seguir leyendo", "/opds/continue", "Lo último que leíste", at, q)];
-  for (const t of ["manga", "comic"]) {
+  for (const t of ["manga", "comic", "book"]) {
     const n = works.filter((w) => w.type === t).length;
     if (n) entries.push(navEntry(`urn:archivist:type:${t}`, TYPES_ES[t]!, `/opds/type/${t}`, `${n} obra(s)`, at, q));
   }

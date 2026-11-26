@@ -106,7 +106,7 @@ describe("server", () => {
     const work = await (await api("/api/v1/works/pages/berserk")).json() as { unitList: { key: string }[]; reading: string };
     expect(work.reading).toBe("rtl");
     expect(work.unitList[0]!.key).toBe("v01");
-    expect(await (await api("/api/v1/units/pages/berserk/v01/pages")).json()).toEqual({ count: 3 });
+    expect(await (await api("/api/v1/units/pages/berserk/v01/pages")).json()).toEqual({ count: 3, text: false, assistant: false });
     const page = await api("/api/v1/units/pages/berserk/v01/pages/2");
     expect(page.headers.get("content-type")).toBe("image/png");
     expect(Buffer.from(await page.arrayBuffer()).equals(PNG)).toBe(true);

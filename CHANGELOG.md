@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-11-26
+
+- Books: `type: book` is a work of its own (a PDF per volume under `pages/`), read left to right,
+  with its own row at home, its own filter and its own OPDS shelf. "Subir" creates one.
+- The words of a PDF page: `GET /api/v1/units/…/pages/:n/text`, and `get_page_text` over MCP, so an
+  agent that knows where you are (`get_progress`) can read the page you are on.
+- Ask about the page: with `ARCHIVIST_ASSISTANT_KEY` set, the reader of a PDF gets a panel beside
+  the page (a sheet from below on a phone) to ask a model about what is on screen. The server
+  sends the question, the work's title and the words of that page and the two before it, never a
+  page further on; the key never reaches the browser. Any API that speaks chat completions:
+  DeepSeek by default, OpenRouter or Ollama with `ARCHIVIST_ASSISTANT_URL` and
+  `ARCHIVIST_ASSISTANT_MODEL`. `POST /api/v1/units/…/ask`. Off by default; SOUL.md says what
+  leaves the server when it is on.
+
 ## 0.7.0 — 2026-10-06
 
 - A new look. Home opens on a full-width picture of what you're in the middle of, with "Seguir"

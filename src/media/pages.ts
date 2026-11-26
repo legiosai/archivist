@@ -81,6 +81,17 @@ async function pdfSource(file: string, cacheDir: string): Promise<PageSource> {
   };
 }
 
+/**
+ * The words on a PDF page, in reading order (poppler's pdftotext). Empty for a scanned page: the
+ * words are whatever the file carries, nothing is recognised from the image.
+ */
+export async function pageText(root: string, unit: Unit, n: number): Promise<string> {
+  if (unit.format !== "pdf") throw new Error(`${unit.key} has no text (format ${unit.format})`);
+  const { stdout } = await run("pdftotext", ["-f", String(n), "-l", String(n), "-enc", "UTF-8", join(root, unit.path), "-"],
+    { maxBuffer: 4 * 1024 * 1024 });
+  return stdout.replace(/\f/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 const sources = new Map<string, { mtime: number; source: PageSource }>();
 
 /** The unit's pages; sources are cached until the file changes. */

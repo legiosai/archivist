@@ -4,7 +4,8 @@
  *
  *   video/<work>.mp4 + <work>.yaml          a film: one unit
  *   video/<work>/S01E01.mkv … + work.yaml    a series or an anime: one unit per episode file
- *   pages/<work>/vol-01.cbz … + work.yaml    a manga or a comic: one unit per volume — an
+ *   pages/<work>/vol-01.cbz … + work.yaml    a manga, a comic or a book (`type: book`, a PDF per
+ *                                            volume): one unit per volume — an
  *                                            archive (CBZ, ZIP, PDF), a folder of images, or the
  *                                            images sitting in the work's own folder
  *   stills/<work>/… + work.yaml              screenshots: one unit
@@ -19,7 +20,7 @@ export const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif", ".g
 export const VIDEO_EXT = new Set([".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"]);
 export const ARCHIVE_EXT = new Set([".cbz", ".zip", ".pdf"]);
 export const SUBTITLE_EXT = new Set([".srt", ".vtt", ".ass", ".ssa"]);
-export const TYPES = ["film", "series", "anime", "manga", "comic"] as const;
+export const TYPES = ["film", "series", "anime", "manga", "comic", "book"] as const;
 
 /**
  * A work's own poster, next to its files: `poster.jpg` (or `folder.jpg`) in its folder, and for a

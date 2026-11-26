@@ -20,7 +20,7 @@ export function Login() {
     <div className="login">
       <form className="card" onSubmit={submit}>
         <div className="brand"><Mark />archivist</div>
-        <p className="faint small">Tu biblioteca de películas, series, anime, manga y cómics.</p>
+        <p className="faint small">Tu biblioteca de películas, series, anime, manga, cómics y libros.</p>
         <label htmlFor="token">Token</label>
         <input id="token" type="password" autoFocus autoComplete="current-password" value={token} onChange={(e) => setToken(e.target.value)} />
         {error && <p className="bad small">{error}</p>}

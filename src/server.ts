@@ -13,7 +13,8 @@ import { isTrusted, trustedNetworks, type Config } from "./config.ts";
 import { OWNER, Store, type Progress, type TrackChoice } from "./db.ts";
 import { Library } from "./library/index.ts";
 import type { Unit, Work } from "./library/scan.ts";
-import { MIME, openPages } from "./media/pages.ts";
+import { MIME, openPages, pageText } from "./media/pages.ts";
+import { Assistant, AssistantError, DEFAULT_MODEL, DEFAULT_URL, PAGES_BEFORE, cleanHistory } from "./assistant.ts";
 import { rootFeed, workFeed, worksFeed } from "./opds.ts";
 import { audioOf, embeddedVtt, frame, playable, prepare, probe, subtitlesVtt } from "./media/video.ts";
 import { Metadata } from "./meta.ts";
@@ -156,6 +157,7 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
   const library = new Library(cfg.library, store);
   const cache = join(cfg.data, "cache");
   const metadata = new Metadata(store, cfg.metadata ?? { providers: [], tmdbToken: null }, cache, options.fetch);
+  const assistant = new Assistant(cfg.assistant ?? { url: DEFAULT_URL, key: null, model: DEFAULT_MODEL }, options.fetch);
   // Every rescan also looks up, in the background, the metadata of works that arrived.
   const rescan = () => {
     const out = library.rescan();
@@ -317,6 +319,10 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
       const { unit } = findById(id, key);
       const page = await (await openPages(cfg.library, unit, cache)).page(n);
       return scaleDown(page.data, page.type, maxWidth);
+    },
+    pageText: async (id, key, n) => {
+      const { unit } = findById(id, key);
+      return textOf(unit, n, (await openPages(cfg.library, unit, cache)).count);
     },
     duration: async (id, key) => {
       const { unit } = findById(id, key);
@@ -593,7 +599,40 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
   route("GET", "/api/v1/units/:kind/:slug/:unit/pages", async (_q, res, p) => {
     const { unit } = find(p);
     const pages = await openPages(cfg.library, unit, cache);
-    json(res, 200, { count: pages.count });
+    // `text`: the pages carry words (a PDF); `assistant`: and there is a model to ask about them.
+    json(res, 200, { count: pages.count, text: unit.format === "pdf", assistant: assistant.on && unit.format === "pdf" });
+  });
+
+  /** The words of a PDF page; 400 for a unit whose pages are only images. */
+  async function textOf(unit: Unit, n: number, count: number): Promise<string> {
+    if (unit.format !== "pdf") throw new HttpError(400, "this unit's pages are images: there is no text to read");
+    if (!Number.isInteger(n) || n < 1 || n > count) throw new HttpError(404, "no such page");
+    return pageText(cfg.library, unit, n);
+  }
+
+  route("GET", "/api/v1/units/:kind/:slug/:unit/pages/:n/text", async (_q, res, p) => {
+    const { unit } = find(p);
+    const pages = await openPages(cfg.library, unit, cache);
+    const n = Number(p.n);
+    json(res, 200, { page: n, count: pages.count, text: await textOf(unit, n, pages.count) });
+  });
+
+  // Ask the model about the page on screen. It gets that page and the two before it, never one
+  // further on: the reader's place is the limit of what leaves the server (SOUL.md).
+  route("POST", "/api/v1/units/:kind/:slug/:unit/ask", async (req, res, p) => {
+    const { work, unit } = find(p);
+    if (!assistant.on) throw new HttpError(404, "the assistant is off (ARCHIVIST_ASSISTANT_KEY)");
+    const b = await readJson(req, 256 * 1024);
+    const question = typeof b.question === "string" ? b.question.trim() : "";
+    if (!question) throw new HttpError(400, "a question is required");
+    const pages = await openPages(cfg.library, unit, cache);
+    const n = Number(b.page);
+    if (!Number.isInteger(n) || n < 1 || n > pages.count) throw new HttpError(400, `page must be between 1 and ${pages.count}`);
+    const sent: { n: number; text: string }[] = [];
+    for (let i = Math.max(1, n - PAGES_BEFORE); i <= n; i++) sent.push({ n: i, text: await textOf(unit, i, pages.count) });
+    if (!sent.some((s) => s.text)) throw new HttpError(400, "these pages carry no text (a scanned book?): there is nothing to send");
+    json(res, 200, await assistant.ask({ title: work.title, unit: unit.label, page: n, count: pages.count, pages: sent, question,
+      history: cleanHistory(b.history) }));
   });
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/pages/:n", async (_q, res, p, url) => {
@@ -905,7 +944,7 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
       }
       await hit.handler(req, res, hit.params, url);
     } catch (err) {
-      const status = err instanceof HttpError || err instanceof UploadError ? err.status
+      const status = err instanceof HttpError || err instanceof UploadError || err instanceof AssistantError ? err.status
         : err instanceof RangeError ? 404 : 500;
       if (status === 500) console.error(err);
       if (!res.headersSent) json(res, status, { error: status === 500 ? "internal error" : (err as Error).message });

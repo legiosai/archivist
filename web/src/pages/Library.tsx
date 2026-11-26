@@ -6,8 +6,8 @@ import { Header, Img, SkeletonGrid, thumb } from "./parts.tsx";
 
 interface Latest extends Progress { work: WorkSummary }
 
-const ORDER: WorkType[] = ["film", "series", "anime", "manga", "comic"];
-const PLURAL: Record<WorkType, string> = { film: "Películas", series: "Series", anime: "Anime", manga: "Manga", comic: "Cómics" };
+const ORDER: WorkType[] = ["film", "series", "anime", "manga", "comic", "book"];
+const PLURAL: Record<WorkType, string> = { film: "Películas", series: "Series", anime: "Anime", manga: "Manga", comic: "Cómics", book: "Libros" };
 type Status = "all" | "reading" | "unstarted" | "finished";
 type Sort = "recent" | "title" | "year";
 const STATUS: [Status, string][] = [["all", "Todas"], ["reading", "En curso"], ["unstarted", "Sin empezar"], ["finished", "Terminadas"]];

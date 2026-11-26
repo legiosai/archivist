@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthError, api, go, saveProgress, unitPath, useQuery, type WorkDetail } from "../api.ts";
 import { Icon } from "../icons.tsx";
+import { AskPanel } from "./Ask.tsx";
 
 type Mode = "rtl" | "ltr" | "vertical";
 
@@ -30,6 +31,8 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   const [chrome, setChrome] = useState(true);
   const [settings, setSettings] = useState(false);
   const [error, setError] = useState("");
+  const [canAsk, setCanAsk] = useState(false);
+  const [asking, setAsking] = useState(false);
   const startAt = Number(useQuery("p") ?? 0);
   const strip = useRef<HTMLDivElement>(null);
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -41,10 +44,12 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   const prevUnit = work && unitIndex > 0 ? work.unitList[unitIndex - 1] : undefined;
 
   useEffect(() => {
-    Promise.all([api<WorkDetail>(`/api/v1/works/${id}`), api<{ count: number }>(`${base}/pages`)])
+    Promise.all([api<WorkDetail>(`/api/v1/works/${id}`), api<{ count: number; assistant?: boolean }>(`${base}/pages`)])
       .then(([w, c]) => {
         setWork(w);
         setCount(c.count);
+        setCanAsk(Boolean(c.assistant));
+        setAsking(c.assistant ? stored("ask:open", false) : false);
         const u = w.unitList.find((x) => x.key === unitKey);
         const saved = u?.progress && !u.progress.finished ? u.progress.position : 1;
         setPage(Math.min(c.count, Math.max(1, startAt || saved)));
@@ -81,6 +86,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   useEffect(() => {
     if (mode === "vertical") return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("textarea, input:not([type=range]), select")) return;   // typing a question
       if (e.key === "ArrowRight") (mode === "rtl" ? backward : forward)();
       else if (e.key === "ArrowLeft") (mode === "rtl" ? forward : backward)();
       else if (e.key === " " || e.key === "PageDown") { e.preventDefault(); forward(); }
@@ -126,6 +132,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
 
   function setModeSaved(m: Mode) { setMode(m); store(`mode:${id}`, m); }
   function setDoubleSaved(d: boolean) { setDouble(d); store(`double:${id}`, d); }
+  function setAskingSaved(a: boolean) { setAsking(a); store("ask:open", a); }
 
   if (error) return <main><p className="notice bad">{error}</p><a href={`#/w/${id}`}>Volver</a></main>;
   if (!work || !page) return <main className="reader-loading"><div className="spinner" aria-label="Abriendo" /></main>;
@@ -134,11 +141,16 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
   const ordered = mode === "rtl" ? [...pages].reverse() : pages;
 
   return (
-    <div className={`reader ${chrome ? "" : "bare"}`}>
+    <div className={`reader ${chrome ? "" : "bare"} ${asking ? "asking" : ""}`}>
       <div className="reader-bar">
         <a className="back" href={`#/w/${id}`} title="Volver a la obra"><Icon name="back" /><span>{work.title}</span></a>
         <span className="pill">{unit?.label}</span>
         <div className="menu-wrap">
+          {canAsk && (
+            <button className={`ctl ask-toggle ${asking ? "on" : ""}`} onClick={() => setAskingSaved(!asking)} aria-pressed={asking} title="Preguntar sobre esta página">
+              <Icon name="chat" />
+            </button>
+          )}
           <button className={`ctl ${settings ? "on" : ""}`} onClick={() => setSettings(!settings)} aria-haspopup="dialog" aria-expanded={settings} title="Cómo leer">
             <Icon name="sliders" />
           </button>
@@ -146,7 +158,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
             <div className="menu reading" role="dialog" aria-label="Cómo leer">
               <div className="menu-head">Sentido</div>
               <div className="seg" role="radiogroup" aria-label="Sentido de lectura">
-                {([["rtl", "Derecha a izquierda", "Manga"], ["ltr", "Izquierda a derecha", "Cómic"], ["vertical", "Vertical", "Webtoon"]] as const).map(([m, label, hint]) => (
+                {([["rtl", "Derecha a izquierda", "Manga"], ["ltr", "Izquierda a derecha", "Cómic, libro"], ["vertical", "Vertical", "Webtoon"]] as const).map(([m, label, hint]) => (
                   <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => setModeSaved(m)}>
                     <strong>{label}</strong><span>{hint}</span>
                   </button>
@@ -187,6 +199,7 @@ export function Reader({ id, unitKey, onAuth }: { id: string; unitKey: string; o
           {page + step > count && nextUnit && <a className="btn primary" href={`#/r/${id}/${nextUnit.key}?p=1`}>Seguir con {nextUnit.label}</a>}
         </div>
       )}
+      {asking && <AskPanel id={id} unitKey={unitKey} page={lastShown} onClose={() => setAskingSaved(false)} />}
     </div>
   );
 }

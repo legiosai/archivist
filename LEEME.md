@@ -22,8 +22,9 @@ MIT
 
 </div>
 
-> **Estado: 0.7.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
-> persona, portadas y datos de TMDB o AniList si los activás, un resumen del año, OPDS para el
+> **Estado: 0.8.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
+> persona, portadas y datos de TMDB o AniList si los activás, un modelo para preguntarle
+> sobre la página de un libro si lo activás, un resumen del año, OPDS para el
 > celular y una API y un servidor MCP para herramientas. Interfaz en castellano. El [plan](docs/plan.md) está completo; los cambios están en el
 > [changelog](CHANGELOG.md).
 
@@ -31,9 +32,14 @@ MIT
 
 Una biblioteca auto-alojada de lo que ya tenés en disco:
 
-- **Un lector** de manga y cómics (CBZ, ZIP, PDF, carpetas de imágenes): de
+- **Un lector** de manga, cómics y libros (CBZ, ZIP, PDF, carpetas de imágenes): de
   derecha a izquierda, de izquierda a derecha, vertical y a doble página.
   Recuerda el tomo, el capítulo y la página.
+- **Libros** en PDF, de a una página como todo lo demás, en la página donde
+  quedaste desde cualquier dispositivo. Si lo activás, un panel al lado de la
+  página le pregunta a un modelo que elegís vos (DeepSeek, OpenRouter, un Ollama
+  local: cualquiera que hable chat completions) sobre lo que estás leyendo.
+  Recibe la página en pantalla y las dos anteriores, y nada más del libro.
 - **Un reproductor** de películas, series y anime: lo que el navegador
   reproduce directo, y el resto remuxado al vuelo con ffmpeg, con subtítulos.
   Recuerda el episodio y el minuto.
@@ -60,6 +66,7 @@ library/
   video/<obra>.mp4 + <obra>.yaml           una película
   video/<obra>/S01E01.mkv … + work.yaml     una serie o un anime
   pages/<obra>/tomo-01.cbz … + work.yaml    un manga o un cómic
+  pages/<obra>/<obra>.pdf + work.yaml       un libro: `type: book` en el yaml
 ```
 
 Las carpetas mandan: se copian con rsync y se respaldan sin que archivist esté
@@ -98,14 +105,16 @@ herramientas reciben páginas y fotogramas, nunca clips. Está descrita en OpenA
 
 archivist es un servidor MCP en `/mcp` (HTTP con streaming, el mismo token). Un
 agente puede buscar en la biblioteca, abrir una obra, mirar una página o un
-fotograma, y leer o guardar dónde va cada uno:
+fotograma, leer el texto de la página de un libro, y leer o guardar dónde va
+cada uno (así «explicame la página en la que estoy» funciona desde cualquier agente):
 
 ```sh
 claude mcp add --transport http archivist https://tu-servidor/mcp --header "Authorization: Bearer $ARCHIVIST_TOKEN"
 ```
 
 Herramientas: `search_library`, `list_works`, `get_work`, `get_progress`,
-`set_progress`, `get_page`, `get_frame`, `recent_events`, `list_profiles`.
+`set_progress`, `get_page`, `get_page_text`, `get_frame`, `recent_events`,
+`list_profiles`.
 `/llms.txt` lo resume para un modelo.
 
 ## En internet
