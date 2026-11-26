@@ -1,52 +1,64 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ask, type AskTurn } from "../api.ts";
 import { Icon } from "../icons.tsx";
+import { Markdown } from "../markdown.tsx";
+import { CopyButton } from "../rich/code.tsx";
 
 interface Line extends AskTurn {
   /** The page the question was asked on. */
   page?: number;
-}
-
-const STARTERS = ["Explicame esta página con palabras simples", "Dame un ejemplo concreto de esto", "¿Qué tengo que recordar de acá?"];
-
-/** `code`, **strong** and *emphasis* inside a line; anything else stays as written. */
-function inline(text: string): ReactNode[] {
-  return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*)/g).map((part, i) => {
-    if (/^`.+`$/.test(part)) return <code key={i}>{part.slice(1, -1)}</code>;
-    if (/^\*\*.+\*\*$/.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>;
-    if (/^\*.+\*$/.test(part)) return <em key={i}>{part.slice(1, -1)}</em>;
-    return part;
-  });
+  /** What the reader typed, and the fragment they had selected, as they should see them again. */
+  question?: string;
+  quote?: string;
 }
 
 /**
- * An answer as the model wrote it: paragraphs, fenced code as a block, and the little Markdown
- * models use whatever they are told. Built as elements, never as HTML.
+ * Ways to study what is on screen. `{x}` becomes "esta página", or "este fragmento" when the reader
+ * selected some text, so the same shortcut works for both.
  */
-function Answer({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/```[a-z]*\n?/i).map((block, i) => (i % 2
-        ? <pre key={i}>{block.replace(/\n$/, "")}</pre>
-        : block.trim() ? <p key={i}>{inline(block.trim().replace(/^#{1,4}\s+/gm, ""))}</p> : null))}
-    </>
-  );
+const AIDS: [label: string, prompt: string][] = [
+  ["Explicámelo simple", "Explicame {x} con palabras simples, como si fuera la primera vez que lo veo."],
+  ["Resumen en puntos", "Resumí {x} en 4 a 6 puntos clave."],
+  ["Un ejemplo", "Dame un ejemplo concreto y práctico de lo que dice {x}."],
+  ["Una analogía", "Explicá la idea principal de {x} con una analogía de la vida cotidiana."],
+  ["Diagrama", "Mostrame {x} con un diagrama Mermaid chico y explicá en dos o tres puntos cómo leerlo."],
+  ["Conceptos clave", "Armá un glosario breve con los términos técnicos de {x}: el término en negrita y su definición en una línea."],
+  ["Poneme a prueba", "Haceme 3 preguntas cortas para ver si entendí {x}. Poné las respuestas al final, bajo el título ### Respuestas."],
+];
+
+const QUOTE_CHARS = 1500;
+
+/** What goes to the model: the question, with the selected fragment in front when there is one. */
+function withQuote(question: string, quote: string | null): string {
+  if (!quote) return question;
+  return `Sobre este fragmento de la página:\n"${quote}"\n\n${question || "Explicámelo."}`;
 }
 
 /**
  * A conversation about the page on screen. Each question goes with the page it was asked on; the
  * server sends the model that page and the two before it, never one further on.
  */
-export function AskPanel({ id, unitKey, page, onClose }: { id: string; unitKey: string; page: number; onClose: () => void }) {
+export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }: {
+  id: string; unitKey: string; page: number; onClose: () => void;
+  /** Text the reader selected on the page; `n` changes on every new selection so the same text can be sent twice. */
+  quote?: { text: string; n: number } | null;
+}) {
   const [lines, setLines] = useState<Line[]>([]);
   const [draft, setDraft] = useState("");
+  const [quote, setQuote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [model, setModel] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { setLines([]); setError(""); }, [id, unitKey]);
+  useEffect(() => { setLines([]); setError(""); setQuote(null); }, [id, unitKey]);
+  // A new selection on the page becomes the fragment the next question is about.
+  useEffect(() => {
+    if (!selected?.text.trim()) return;
+    setQuote(selected.text.trim().replace(/\s+/g, " ").slice(0, QUOTE_CHARS));
+    box.current?.focus();
+  }, [selected?.n, selected?.text]);
   // Keep the last question at the top, so a long answer is read from its first line.
   useEffect(() => {
     const asked = list.current?.querySelectorAll<HTMLElement>(".ask-line.user");
@@ -57,14 +69,16 @@ export function AskPanel({ id, unitKey, page, onClose }: { id: string; unitKey: 
 
   async function send(text: string) {
     const question = text.trim();
-    if (!question || busy) return;
+    if ((!question && !quote) || busy) return;
+    const content = withQuote(question, quote);
     const history = lines.map(({ role, content }) => ({ role, content }));
-    setLines([...lines, { role: "user", content: question, page }]);
+    setLines([...lines, { role: "user", content, page, question: question || "Explicámelo.", quote: quote ?? undefined }]);
     setDraft("");
+    setQuote(null);
     setError("");
     setBusy(true);
     try {
-      const a = await ask(id, unitKey, page, question, history);
+      const a = await ask(id, unitKey, page, content, history);
       setModel(a.model);
       setLines((l) => [...l, { role: "assistant", content: a.answer }]);
     } catch (e) {
@@ -73,6 +87,8 @@ export function AskPanel({ id, unitKey, page, onClose }: { id: string; unitKey: 
       setBusy(false);
     }
   }
+
+  const about = quote ? "este fragmento" : "esta página";
 
   return (
     <aside className="ask" aria-label="Preguntar sobre esta página">
@@ -84,24 +100,46 @@ export function AskPanel({ id, unitKey, page, onClose }: { id: string; unitKey: 
       <div className="ask-lines" ref={list}>
         {!lines.length && (
           <div className="ask-empty">
-            <p>Preguntá lo que no se entienda de lo que estás leyendo.</p>
-            {STARTERS.map((s) => <button key={s} className="ask-starter" onClick={() => void send(s)}>{s}</button>)}
+            <p>Preguntá lo que no se entienda de lo que estás leyendo, o elegí una de las ayudas de abajo.</p>
+            <p className="faint small">Si seleccionás un párrafo de la página, la pregunta va sobre ese fragmento.</p>
           </div>
         )}
         {lines.map((l, i) => (
           <div key={i} className={`ask-line ${l.role}`}>
-            {l.role === "user" && l.page ? <span className="ask-page">p. {l.page}</span> : null}
-            {l.role === "assistant" ? <Answer text={l.content} /> : <p>{l.content}</p>}
+            {l.role === "user" ? (
+              <>
+                {l.page ? <span className="ask-page">p. {l.page}</span> : null}
+                {l.quote && <blockquote className="ask-quoted">{l.quote}</blockquote>}
+                <p>{l.question ?? l.content}</p>
+              </>
+            ) : (
+              <>
+                <Markdown text={l.content} />
+                <div className="ask-tools"><CopyButton text={l.content} label="Copiar respuesta" /></div>
+              </>
+            )}
           </div>
         ))}
-        {busy && <div className="ask-line assistant pending"><p>Leyendo la página…</p></div>}
+        {busy && <div className="ask-line assistant pending"><p>Leyendo y pensando…</p></div>}
         {error && <p className="notice bad">{error}</p>}
       </div>
+      <div className="ask-aids" role="toolbar" aria-label="Ayudas para estudiar">
+        {AIDS.map(([label, prompt]) => (
+          <button key={label} type="button" className="ask-aid" disabled={busy} onClick={() => void send(prompt.replace("{x}", about))}>{label}</button>
+        ))}
+      </div>
+      {quote && (
+        <div className="ask-quote-chip">
+          <span>Sobre: «{quote.length > 140 ? `${quote.slice(0, 139)}…` : quote}»</span>
+          <button type="button" className="ctl" onClick={() => setQuote(null)} aria-label="Quitar el fragmento"><Icon name="close" /></button>
+        </div>
+      )}
       <form className="ask-form" onSubmit={(e) => { e.preventDefault(); void send(draft); }}>
-        <textarea ref={box} value={draft} rows={2} placeholder="Tu pregunta" aria-label="Tu pregunta" maxLength={2000}
+        <textarea ref={box} value={draft} rows={2} placeholder={quote ? "¿Qué querés saber de este fragmento?" : "Tu pregunta"}
+                  aria-label="Tu pregunta" maxLength={2000}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(draft); } }} />
-        <button className="btn primary" type="submit" disabled={busy || !draft.trim()} aria-label="Enviar"><Icon name="send" /></button>
+        <button className="btn primary" type="submit" disabled={busy || (!draft.trim() && !quote)} aria-label="Enviar"><Icon name="send" /></button>
       </form>
       <p className="faint small ask-note">
         Se envían al modelo{model ? ` (${model})` : ""} tu pregunta, esta página y las dos anteriores. Nada más del libro.

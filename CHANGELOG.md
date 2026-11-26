@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 — 2026-11-26
+
+- Books open in a PDF viewer like a browser's own (pdf.js, the engine of Firefox's): the real
+  pages, sharp at any zoom; zoom with Ctrl/⌘ and the wheel, a trackpad pinch or two fingers, or
+  the menu (automatic, fit the page, fit the width, actual size, 50 to 400 %); text that can be
+  selected and searched (Ctrl/⌘ F, every match marked); the book's own index and page thumbnails
+  on the left; scrolling vertical, page by page, horizontal or as a mosaic; one page, two, or two
+  with the cover alone; four paper colours (original, sepia, dark, night); rotation, full screen,
+  a presentation mode, and the PDF to download. It is remembered per book, in that browser. The
+  page in view is saved as before. Manga, comics and `?classic=1` keep the page reader.
+- The panel to ask is docked on the right of the book, and its edge can be dragged wider. Select
+  words on the page and "Preguntar sobre esto" asks about that passage.
+- Answers that teach: the model is asked for the answer first with the key idea in bold, then
+  short points or numbered steps, one or two learning aids that fit (an example, an analogy, a
+  table, a common mistake, a diagram, a chart, a formula), and a closing "Para recordar". The
+  panel renders them: Markdown with lists, tables and headings; code with its language and a copy
+  button; Mermaid diagrams, ```` ```chart ```` blocks drawn as SVG, and LaTeX math with KaTeX, each
+  loaded only when an answer has one, all under the same CSP. "Respuestas" folds away until asked.
+- Study shortcuts under the box: explain it simply, summary in points, an example, an analogy, a
+  diagram, key terms, and "Poneme a prueba" (three questions, answers hidden). Each answer can be
+  copied. A selected passage goes with the question, quoted.
+- Up to 4000 tokens per answer (a reasoning model's thinking counts against it) and 120 s to
+  answer, so a reasoning model like `deepseek/deepseek-v4-pro` fits.
+
 ## 0.8.0 — 2026-11-26
 
 - Books: `type: book` is a work of its own (a PDF per volume under `pages/`), read left to right,

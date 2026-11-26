@@ -39,7 +39,8 @@ const PROFILE_COOKIE = "archivist_profile";
 const STATIC_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
   ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json", ".webmanifest": "application/manifest+json",
-  ".woff2": "font/woff2",
+  ".woff2": "font/woff2", ".mjs": "text/javascript", ".gif": "image/gif", ".wasm": "application/wasm",
+  ".woff": "font/woff", ".ttf": "font/ttf",
 };
 
 export class HttpError extends Error {

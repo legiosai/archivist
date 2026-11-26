@@ -133,7 +133,10 @@ describe("the assistant", () => {
     const m = messagesFor({ title: "T", unit: "Tomo 1", page: 2, count: 9, pages: [{ n: 1, text: "" }, { n: 2, text: "x".repeat(9000) }],
       question: "q".repeat(5000), history: [] });
     expect(m[0]!.content).toContain("(no text on this page)");
-    expect(m[0]!.content.length).toBeLessThan(7500);
+    // The page is clipped to 6000 characters; the rest of the system message is the tutor's brief.
+    expect(m[0]!.content).toContain(`${"x".repeat(6000)}…`);
+    expect(m[0]!.content).not.toContain("x".repeat(6001));
+    expect(m[0]!.content.length).toBeLessThan(6000 + 4000);
     expect(m[1]!.content.length).toBe(2001);
   });
 });

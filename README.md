@@ -115,7 +115,7 @@ A systemd user unit and an example environment file are in [`deploy/`](deploy/).
 | `ARCHIVIST_TMDB_TOKEN` | — | TMDB's API read access token (or a v3 API key), free at themoviedb.org. AniList needs none. |
 | `ARCHIVIST_ASSISTANT_KEY` | — | The API key of a model to ask about the page of a book. Off without it: then no text leaves the server. When on, each question goes with the work's title and the words of the page on screen and the two before it; the key stays on the server. |
 | `ARCHIVIST_ASSISTANT_URL` | `https://api.deepseek.com` | The API's base URL; `/chat/completions` is added. Vercel AI Gateway: `https://ai-gateway.vercel.sh/v1`. OpenRouter: `https://openrouter.ai/api/v1`. Ollama: `http://localhost:11434/v1` (any key). |
-| `ARCHIVIST_ASSISTANT_MODEL` | `deepseek-chat` | The model's name, as that API calls it (`deepseek/deepseek-v4-flash` on a gateway). |
+| `ARCHIVIST_ASSISTANT_MODEL` | `deepseek-chat` | The model's name, as that API calls it (`deepseek/deepseek-v4-flash` or the reasoning `deepseek/deepseek-v4-pro` on a gateway; up to 4000 tokens per answer, thinking included). |
 
 PDF text needs poppler's `pdftotext`, which comes with the `pdftoppm` the reader already uses.
 

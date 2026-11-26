@@ -8,7 +8,7 @@ import { Catalog, Library } from "./pages/Library.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Player } from "./pages/Player.tsx";
 import { Profiles } from "./pages/Profiles.tsx";
-import { Reader } from "./pages/Reader.tsx";
+import { Read } from "./pages/Read.tsx";
 import { Upload } from "./pages/Upload.tsx";
 import { WorkPage } from "./pages/WorkPage.tsx";
 import { Year } from "./pages/Year.tsx";
@@ -37,7 +37,7 @@ function App({ onAuth }: { onAuth: () => void }) {
   if (!hasProfileCookie() && view !== "perfiles") return <Picker />;
   const id = kind && slug ? `${kind}/${slug}` : "";
   if (view === "w" && id) return <WorkPage id={id} onAuth={onAuth} />;
-  if (view === "r" && id && unit) return <Reader id={id} unitKey={unit} onAuth={onAuth} />;
+  if (view === "r" && id && unit) return <Read id={id} unitKey={unit} onAuth={onAuth} />;
   if (view === "v" && id && unit) return <Player id={id} unitKey={unit} onAuth={onAuth} />;
   if (view === "subir") return <Upload preset={id || null} onAuth={onAuth} />;
   if (view === "perfiles") return <Profiles onAuth={onAuth} />;

@@ -3,3 +3,5 @@ dist/
 data/
 *.log
 .DS_Store
+# pdf.js fonts, CMaps and decoders, copied from node_modules by vite.config.ts
+web/public/pdfjs/

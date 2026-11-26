@@ -1,6 +1,6 @@
 {
   "name": "@legios/archivist",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Everything you own to read or watch, in one place, and it never forgets where you stopped.",
   "license": "MIT",
@@ -30,6 +30,9 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "katex": "^0.19.1",
+    "mermaid": "^12.3.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^5.9.0",
