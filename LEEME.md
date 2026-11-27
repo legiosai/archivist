@@ -22,7 +22,7 @@ MIT
 
 </div>
 
-> **Estado: 0.10.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
+> **Estado: 0.11.** Lee, reproduce, recuerda y recibe subidas, con un perfil para cada
 > persona, portadas y datos de TMDB o AniList si los activás, un modelo para preguntarle
 > sobre la página de un libro si lo activás, un resumen del año, OPDS para el
 > celular y una API y un servidor MCP para herramientas. Interfaz en castellano. El [plan](docs/plan.md) está completo; los cambios están en el
@@ -35,14 +35,16 @@ Una biblioteca auto-alojada de lo que ya tenés en disco:
 - **Un lector** de manga, cómics y libros (CBZ, ZIP, PDF, carpetas de imágenes): de
   derecha a izquierda, de izquierda a derecha, vertical y a doble página.
   Recuerda el tomo, el capítulo y la página.
-- **Libros** en PDF, de a una página como todo lo demás, en la página donde
-  quedaste desde cualquier dispositivo. Si lo activás, un panel al lado de la
-  página le pregunta a un modelo que elegís vos (DeepSeek, OpenRouter, un Ollama
-  local: cualquiera que hable chat completions) sobre lo que estás leyendo.
-  Recibe la página en pantalla y las dos anteriores, y nada más del libro. En
-  el celular la página ocupa toda la pantalla, ajustada al texto y sin los
-  márgenes del papel; un toque esconde y muestra los controles, y el índice, el
-  menú y el panel suben como hojas.
+- **Libros** en PDF, de a una página como todo lo demás, en el renglón donde
+  quedaste desde cualquier dispositivo, con el capítulo en el que estás arriba
+  de la página. Si lo activás, un panel al lado de la página le pregunta a un
+  modelo que elegís vos (DeepSeek, OpenRouter, un Ollama local: cualquiera que
+  hable chat completions) sobre lo que estás leyendo, y escribe la respuesta a
+  medida que el modelo la escribe. Recibe la página en pantalla y las dos
+  anteriores, y nada más del libro. En el celular la página ocupa toda la
+  pantalla, ajustada al texto y sin los márgenes del papel, y la pantalla
+  queda encendida mientras leés; un toque esconde y muestra los controles, y
+  el índice, el menú y el panel suben como hojas.
 - **Un reproductor** de películas, series y anime: lo que el navegador
   reproduce directo, y el resto remuxado al vuelo con ffmpeg, con subtítulos.
   Recuerda el episodio y el minuto.

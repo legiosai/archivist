@@ -57,6 +57,12 @@ export interface Progress {
   total: number;
   finished: boolean;
   updatedAt: string;
+  /**
+   * Pages only, and only when the reader that saved it knows: how far down the page the first line
+   * on screen was, as a share of the page's height. Negative while the screen still began on the
+   * page before. `null` when all that is known is the page.
+   */
+  within: number | null;
 }
 
 /** What TMDB or AniList say about a work, cached; `match` says how it was found. */
@@ -142,6 +148,7 @@ function toProgress(r: Row): Progress {
   return {
     profile: String(r.profile), workId: String(r.work_id), unitKey: String(r.unit_key), position: Number(r.position),
     total: Number(r.total), finished: Number(r.finished) === 1, updatedAt: String(r.updated_at),
+    within: r.within === null || r.within === undefined ? null : Number(r.within),
   };
 }
 
@@ -187,6 +194,8 @@ export class Store {
     if (!cols("events").includes("profile")) this.db.exec(`ALTER TABLE events ADD COLUMN profile TEXT;`);
     // 0.5: each profile picks its avatar.
     if (!cols("profiles").includes("hue")) this.db.exec(`ALTER TABLE profiles ADD COLUMN hue INTEGER; ALTER TABLE profiles ADD COLUMN glyph TEXT;`);
+    // 0.11: the place inside the page, not only the page.
+    if (!cols("progress").includes("within")) this.db.exec(`ALTER TABLE progress ADD COLUMN within REAL;`);
     // 0.7: a wide image beside the poster.
     if (cols("meta").length && !cols("meta").includes("backdrop_file")) this.db.exec(`ALTER TABLE meta ADD COLUMN backdrop_file TEXT;`);
   }
@@ -248,19 +257,20 @@ export class Store {
 
   // --- progress ------------------------------------------------------------------------------
   save(workId: string, unitKey: string, position: number, total: number, kind: "pages" | "video",
-       now = new Date(), profile = OWNER): { progress: Progress; newlyFinished: boolean } {
+       now = new Date(), profile = OWNER, within: number | null = null): { progress: Progress; newlyFinished: boolean } {
     const before = this.db.prepare("SELECT finished, position, updated_at FROM progress WHERE profile = ? AND work_id = ? AND unit_key = ?")
       .get(profile, workId, unitKey) as Row | undefined;
     this.track(profile, workId, unitKey, kind, before, position, now);
     const finished = isFinished(position, total, kind) || Number(before?.finished ?? 0) === 1;
     const at = now.toISOString();
-    this.db.prepare(`INSERT INTO progress (profile, work_id, unit_key, position, total, finished, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (profile, work_id, unit_key) DO UPDATE SET position = excluded.position,
-      total = excluded.total, finished = excluded.finished, updated_at = excluded.updated_at`)
-      .run(profile, workId, unitKey, position, total, finished ? 1 : 0, at);
+    // A save that only knows the page clears the place inside it: it is a place on another page now.
+    this.db.prepare(`INSERT INTO progress (profile, work_id, unit_key, position, total, finished, updated_at, within)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (profile, work_id, unit_key) DO UPDATE SET position = excluded.position,
+      total = excluded.total, finished = excluded.finished, updated_at = excluded.updated_at, within = excluded.within`)
+      .run(profile, workId, unitKey, position, total, finished ? 1 : 0, at, within);
     const newlyFinished = finished && Number(before?.finished ?? 0) !== 1;
     if (newlyFinished) this.event("finished", workId, unitKey, now, profile);
-    return { progress: { profile, workId, unitKey, position, total, finished, updatedAt: at }, newlyFinished };
+    return { progress: { profile, workId, unitKey, position, total, finished, updatedAt: at, within }, newlyFinished };
   }
 
   /**

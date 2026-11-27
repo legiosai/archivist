@@ -10,6 +10,8 @@ export interface Progress {
   total: number;
   finished: boolean;
   updatedAt: string;
+  /** Pages: how far down the page the first line on screen was (a share of its height); null when only the page is known. */
+  within?: number | null;
 }
 
 export interface WorkSummary {
@@ -163,10 +165,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const unitPath = (workId: string, key: string) => `/api/v1/units/${workId}/${key}`;
 
-export function saveProgress(workId: string, key: string, position: number, total: number, keepalive = false) {
+export function saveProgress(workId: string, key: string, position: number, total: number, keepalive = false, within?: number) {
   return fetch(`/api/v1/progress/${workId}/${key}`, {
     method: "PUT", credentials: "same-origin", keepalive,
-    headers: { "content-type": "application/json" }, body: JSON.stringify({ position, total }),
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ position, total, within }),
   }).catch(() => undefined);
 }
 
@@ -180,6 +182,55 @@ export interface AskAnswer { answer: string; model: string; pages: number[]; usa
 /** Ask the server's model about a page; it reads that page and the two before it. */
 export function ask(workId: string, key: string, page: number, question: string, history: AskTurn[]): Promise<AskAnswer> {
   return api<AskAnswer>(`${unitPath(workId, key)}/ask`, { method: "POST", body: JSON.stringify({ page, question, history }) });
+}
+
+/**
+ * The same question, with the answer handed over piece by piece as the model writes it: `onText`
+ * for each piece, `onThinking` once if the model reasons before its first word. Resolves with the
+ * whole answer. `signal` stops it; what was written until then is the caller's to keep.
+ */
+export async function askStream(workId: string, key: string, page: number, question: string, history: AskTurn[],
+                                on: { onText: (piece: string) => void; onThinking?: () => void }, signal?: AbortSignal): Promise<AskAnswer> {
+  const r = await fetch(`${unitPath(workId, key)}/ask`, {
+    method: "POST", credentials: "same-origin", signal,
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ page, question, history, stream: true }),
+  });
+  if (r.status === 401) throw new AuthError("token required");
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = ((await r.json()) as { error?: string }).error ?? msg; } catch { /* not JSON */ }
+    throw new Error(msg);
+  }
+  if (!r.body || !(r.headers.get("content-type") ?? "").includes("text/event-stream")) {
+    const whole = (await r.json()) as AskAnswer;   // a server from before answers could be streamed
+    on.onText(whole.answer);
+    return whole;
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "", text = "";
+  let done: Omit<AskAnswer, "answer"> | null = null;
+  for (;;) {
+    const { value, done: ended } = await reader.read();
+    pending += decoder.decode(value, { stream: !ended });
+    let end: number;
+    while ((end = pending.indexOf("\n\n")) >= 0) {
+      const block = pending.slice(0, end);
+      pending = pending.slice(end + 2);
+      const name = /^event: (.*)$/m.exec(block)?.[1];
+      const raw = /^data: (.*)$/m.exec(block)?.[1];
+      if (!name || raw === undefined) continue;   // a comment that keeps the connection open
+      let data: { text?: string; error?: string; model?: string; pages?: number[]; usage?: AskAnswer["usage"] };
+      try { data = JSON.parse(raw); } catch { continue; }
+      if (name === "text" && data.text) { text += data.text; on.onText(data.text); }
+      else if (name === "thinking") on.onThinking?.();
+      else if (name === "error") throw new Error(data.error ?? "the model stopped answering");
+      else if (name === "done") done = { model: data.model ?? "", pages: data.pages ?? [], usage: data.usage ?? null };
+    }
+    if (ended) break;
+  }
+  if (!text.trim()) throw new Error("the model sent no answer");
+  return { answer: text.trim(), model: done?.model ?? "", pages: done?.pages ?? [], usage: done?.usage ?? null };
 }
 
 export function clock(seconds: number): string {

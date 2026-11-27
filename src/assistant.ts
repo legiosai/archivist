@@ -38,6 +38,12 @@ export interface Answer {
   usage: { input: number; output: number } | null;
 }
 
+/** An answer as it is written: the model is thinking, some more words, and what `ask` would have returned. */
+export type Piece =
+  | { type: "thinking" }
+  | { type: "text"; text: string }
+  | { type: "done"; answer: Answer };
+
 export class AssistantError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -54,6 +60,8 @@ const PAGE_CHARS = 6000;
 const QUESTION_CHARS = 2000;
 const HISTORY_TURNS = 8;
 const TIMEOUT_MS = 120_000;
+/** Written as it comes, an answer may take longer in all, as long as it keeps coming. */
+const STREAM_MS = 300_000;
 /** Room for the answer and for the thinking of a reasoning model, which counts against the same limit. */
 const MAX_TOKENS = 4000;
 
@@ -119,7 +127,8 @@ export class Assistant {
     return this.cfg.model;
   }
 
-  async ask(q: Question): Promise<Answer> {
+  /** The request to the provider; what it answers when it refuses is never passed along. */
+  private async send(q: Question, stream: boolean, signal: AbortSignal): Promise<Response> {
     if (!this.cfg.key) throw new AssistantError(404, "the assistant is off (ARCHIVIST_ASSISTANT_KEY)");
     if (!q.question.trim()) throw new AssistantError(400, "a question is required");
     let res: Response;
@@ -127,12 +136,11 @@ export class Assistant {
       res = await this.fetch(`${this.cfg.url}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.key}` },
-        body: JSON.stringify({ model: this.cfg.model, messages: messagesFor(q), stream: false, temperature: 0.3, max_tokens: MAX_TOKENS }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        body: JSON.stringify({ model: this.cfg.model, messages: messagesFor(q), stream, temperature: 0.3, max_tokens: MAX_TOKENS }),
+        signal,
       });
     } catch (err) {
-      const timeout = (err as Error).name === "TimeoutError";
-      throw new AssistantError(504, timeout ? "the model took too long to answer" : "the model could not be reached");
+      throw unreachable(err);
     }
     if (!res.ok) {
       // The provider's own words can carry account details: only the status goes back.
@@ -143,18 +151,104 @@ export class Assistant {
         : `the model answered ${res.status}`;
       throw new AssistantError(502, why);
     }
-    const body = (await res.json().catch(() => null)) as {
-      model?: string;
-      choices?: { message?: { content?: unknown } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
-    } | null;
+    return res;
+  }
+
+  /** A whole answer, as the provider sends it when it does not stream. */
+  private whole(body: Completion | null, q: Question): Answer {
     const answer = body?.choices?.[0]?.message?.content;
     if (typeof answer !== "string" || !answer.trim()) throw new AssistantError(502, "the model sent no answer");
     return {
       answer: answer.trim(),
       model: typeof body?.model === "string" ? body.model : this.cfg.model,
       pages: q.pages.map((p) => p.n),
-      usage: body?.usage ? { input: Number(body.usage.prompt_tokens) || 0, output: Number(body.usage.completion_tokens) || 0 } : null,
+      usage: usageOf(body),
     };
   }
+
+  async ask(q: Question): Promise<Answer> {
+    const res = await this.send(q, false, AbortSignal.timeout(TIMEOUT_MS));
+    return this.whole((await res.json().catch(() => null)) as Completion | null, q);
+  }
+
+  /**
+   * The same answer, piece by piece as the model writes it, ending with what `ask` returns.
+   * `stop` gives up on it (the reader left). A model that only thinks at first says so once, and
+   * its thinking is never passed on. It has TIMEOUT_MS to start and to send each next piece.
+   */
+  async *stream(q: Question, stop?: AbortSignal): AsyncGenerator<Piece> {
+    const ctl = new AbortController();
+    const late = () => ctl.abort(new DOMException("too slow", "TimeoutError"));
+    let quiet = setTimeout(late, TIMEOUT_MS);
+    const whole = setTimeout(late, STREAM_MS);
+    const left = () => ctl.abort();
+    stop?.addEventListener("abort", left, { once: true });
+    if (stop?.aborted) ctl.abort();
+    try {
+      const res = await this.send(q, true, ctl.signal);
+      if (!(res.headers.get("content-type") ?? "").includes("text/event-stream") || !res.body) {
+        // A provider that does not stream: the whole answer is its one piece.
+        const answer = this.whole((await res.json().catch(() => null)) as Completion | null, q);
+        yield { type: "text", text: answer.answer };
+        yield { type: "done", answer };
+        return;
+      }
+      const decoder = new TextDecoder();
+      let pending = "", text = "", model = this.cfg.model, thinking = false;
+      let usage: Answer["usage"] = null;
+      try {
+        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+          clearTimeout(quiet);
+          quiet = setTimeout(late, TIMEOUT_MS);
+          pending += decoder.decode(chunk, { stream: true });
+          let end: number;
+          while ((end = pending.indexOf("\n")) >= 0) {
+            const line = pending.slice(0, end).trim();
+            pending = pending.slice(end + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === "[DONE]") continue;
+            let part: Completion;
+            try { part = JSON.parse(data) as Completion; } catch { continue; }
+            if (typeof part.model === "string") model = part.model;
+            usage = usageOf(part) ?? usage;
+            const delta = part.choices?.[0]?.delta;
+            if (typeof delta?.content === "string" && delta.content) {
+              text += delta.content;
+              yield { type: "text", text: delta.content };
+            } else if (!text && !thinking && (delta?.reasoning_content || delta?.reasoning)) {
+              thinking = true;
+              yield { type: "thinking" };
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof AssistantError) throw err;
+        throw unreachable(err, "the model stopped answering");
+      }
+      if (!text.trim()) throw new AssistantError(502, "the model sent no answer");
+      yield { type: "done", answer: { answer: text.trim(), model, pages: q.pages.map((p) => p.n), usage } };
+    } finally {
+      clearTimeout(quiet);
+      clearTimeout(whole);
+      stop?.removeEventListener("abort", left);
+      ctl.abort();   // whatever ended it, the provider is not left writing to nobody
+    }
+  }
+}
+
+/** What a provider sends, whole or in pieces; only what is read here. */
+interface Completion {
+  model?: string;
+  choices?: { message?: { content?: unknown }; delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+}
+
+function usageOf(body: Completion | null): Answer["usage"] {
+  return body?.usage ? { input: Number(body.usage.prompt_tokens) || 0, output: Number(body.usage.completion_tokens) || 0 } : null;
+}
+
+/** A request that failed on the way, as the reader should hear of it. */
+function unreachable(err: unknown, otherwise = "the model could not be reached"): AssistantError {
+  return new AssistantError(504, (err as Error)?.name === "TimeoutError" ? "the model took too long to answer" : otherwise);
 }

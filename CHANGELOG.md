@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.11.0 — 2026-11-27
+
+- A book opens on the lines where you left it, not at the top of that page. With the page fitted
+  to the text a page is two or three screens long, so "the page" was no longer a place. The viewer
+  now saves how far down the page the first line on screen was, a moment after the page stops
+  moving and at once when the screen goes away (a phone locked, another app), and puts those lines
+  back under the bar on any device and at any zoom. A page asked for by its number still opens at
+  its top. For tools it is `within` on a saved position: optional on
+  `PUT /api/v1/progress/…`, `null` when only the page is known.
+- The screen stays on while you read. A phone dims after a minute without a touch, and a page of
+  a technical book takes longer than that. It lets go ten minutes after the last touch, key or
+  scroll, so a phone left open on a table still sleeps. It needs https (the browser's rule).
+- Answers are written as the model writes them, instead of a wait for the whole answer. The panel
+  says whether the model is still reading the page or thinking, shows the words as they come,
+  waits for a diagram or a chart to be complete before drawing it, and has a button to stop:
+  what was written until then stays, and the model is told to stop writing. Through the API it is
+  `stream: true` on `POST …/ask`, answered as server-sent events; without it nothing changes.
+- The bar says which chapter you are in, under the book's name, and the index marks the entry
+  being read, opens the chapters around it and opens on it. In a book divided in parts the bar
+  names the chapter, not the part; in a chapter longer than 60 pages, the section.
+- Books printed on both sides of the sheet read larger. Their left and right pages hold the words
+  in different places, and one column over both was as wide as the two together. Now each side
+  moves to the column: around 10 % larger words in "Think Python" and 8 % in "The Linux Command
+  Line". Books with the same margins on every page are as before. The column is measured again
+  the first time each book is opened.
+
 ## 0.10.0 — 2026-11-27
 
 - A book on a phone is read, not squinted at. The page takes the whole screen and opens **fitted

@@ -10,12 +10,23 @@ const BINS = 200;
 const MIN_RUNS = 8;
 /** Room left on each side of the words, as a fraction of the page's width. */
 const GUTTER = 0.015;
+/** Left and right pages count as set apart from this much of the page's width, and when fitting each on its own gains this much. */
+const APART = 0.008, GAIN = 0.015;
+
+/**
+ * How to fit a book's words to the width: the column to zoom to, and how far each page moves
+ * sideways to sit in it, for odd pages (1, 3, …) and for even ones, as fractions of the page's
+ * width. A book printed on both sides of the sheet keeps the wider margin at the spine, so its
+ * left and right pages hold the words in different places: one column over both would be as wide
+ * as the two together, and the words smaller for it.
+ */
+export interface Fit { col: [number, number]; shift: [number, number] }
 
 /**
  * The pages to look at: spread over the whole book (its first and last pages are covers, contents
  * and indexes, laid out differently), left and right pages alternating, plus the one being read.
  */
-export function samplePages(count: number, near: number, k = 14): number[] {
+export function samplePages(count: number, near: number, k = 20): number[] {
   if (count < 1) return [];
   const lo = Math.max(1, Math.round(count * 0.06)), hi = Math.max(lo, Math.round(count * 0.94));
   const picked = new Set<number>();
@@ -56,4 +67,25 @@ export function columnOf(pages: Spans[], share = 0.3): [number, number] | null {
   }
   if (left < 0) return null;
   return [Math.max(0, left / BINS - GUTTER), Math.min(1, (right + 1) / BINS + GUTTER)];
+}
+
+/**
+ * The fit for a book, from the text runs of some of its pages (`n` is the page number). Where the
+ * odd and the even pages each have a column of their own and they sit apart, the column is as wide
+ * as the wider of the two and each side moves to its middle; otherwise it is the one column of
+ * all the pages and nothing moves. `null` when too few pages have text to tell.
+ */
+export function fitOf(pages: { n: number; spans: Spans }[], share = 0.3): Fit | null {
+  const all = columnOf(pages.map((p) => p.spans), share);
+  if (!all) return null;
+  const one: Fit = { col: all, shift: [0, 0] };
+  const odd = columnOf(pages.filter((p) => p.n % 2 === 1).map((p) => p.spans), share);
+  const even = columnOf(pages.filter((p) => p.n % 2 === 0).map((p) => p.spans), share);
+  if (!odd || !even) return one;
+  const middleOdd = (odd[0] + odd[1]) / 2, middleEven = (even[0] + even[1]) / 2;
+  const width = Math.max(odd[1] - odd[0], even[1] - even[0]);
+  if (Math.abs(middleOdd - middleEven) < APART || all[1] - all[0] - width < GAIN) return one;
+  const middle = (middleOdd + middleEven) / 2;
+  const round = (x: number) => Math.round(x * 10000) / 10000;
+  return { col: [round(middle - width / 2), round(middle + width / 2)], shift: [round(middle - middleOdd), round(middle - middleEven)] };
 }

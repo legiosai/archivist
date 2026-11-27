@@ -125,6 +125,56 @@ describe("the assistant", () => {
     expect((await fetch(`http://127.0.0.1:${(app!.server.address() as AddressInfo).port}${BOOK}/ask`, { method: "POST", body: "{}" })).status).toBe(401);
   });
 
+  it("writes the answer as the model writes it, and says when it is only thinking", async () => {
+    const pieces = [
+      { model: "deepseek-reasoner", choices: [{ delta: { reasoning_content: "the user asks about PIDs" } }] },
+      { choices: [{ delta: { reasoning_content: " so I should define them" } }] },
+      { choices: [{ delta: { content: "A **PID** " } }] },
+      { choices: [{ delta: { content: "names a process." } }], usage: { prompt_tokens: 90, completion_tokens: 12 } },
+    ];
+    // Cut in odd places, as a network would: a line may arrive in two chunks.
+    const wire = `${pieces.map((p) => `data: ${JSON.stringify(p)}\n\n`).join("")}data: [DONE]\n\n`;
+    const { api, sent } = await start(KEY, () => new Response(new ReadableStream({
+      start(c) {
+        for (let i = 0; i < wire.length; i += 37) c.enqueue(new TextEncoder().encode(wire.slice(i, i + 37)));
+        c.close();
+      },
+    }), { headers: { "content-type": "text/event-stream" } }));
+    const r = await api(`${BOOK}/ask`, { method: "POST", body: JSON.stringify({ page: 3, question: "what is a PID?", stream: true }) });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/event-stream");
+    const events = (await r.text()).split("\n\n").filter((e) => e.startsWith("event:"))
+      .map((e) => ({ event: /^event: (.*)$/m.exec(e)![1], data: JSON.parse(/^data: (.*)$/m.exec(e)![1]!) }));
+    expect(events).toEqual([
+      { event: "thinking", data: {} },
+      { event: "text", data: { text: "A **PID** " } },
+      { event: "text", data: { text: "names a process." } },
+      { event: "done", data: { model: "deepseek-reasoner", pages: [1, 2, 3], usage: { input: 90, output: 12 } } },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("the user asks");   // its reasoning stays on the server
+    expect(sent[0]!.body).toMatchObject({ stream: true });
+    expect(JSON.stringify(sent[0]!.body)).not.toContain("SPOILER");
+  });
+
+  it("streams what a provider answers whole, and reports a refusal inside the stream", async () => {
+    const whole = await start(KEY);
+    const r = await whole.api(`${BOOK}/ask`, { method: "POST", body: JSON.stringify({ page: 1, question: "x", stream: true }) });
+    const body = await r.text();
+    expect(body).toContain(`event: text\ndata: {"text":"The kernel is the core."}`);
+    expect(body).toContain("event: done");
+    await app!.close();
+
+    const refused = await start(KEY, () => new Response(`{"error":"bad key ${KEY}"}`, { status: 401 }));
+    const ask = (b: unknown) => refused.api(`${BOOK}/ask`, { method: "POST", body: JSON.stringify(b) });
+    expect((await ask({ page: 9, question: "x", stream: true })).status).toBe(400);   // what is wrong with the question is still a plain error
+    const no = await ask({ page: 1, question: "x", stream: true });
+    expect(no.status).toBe(200);
+    const said = await no.text();
+    expect(said).toContain(`event: error\ndata: {"error":"the model refused the key"}`);
+    expect(said).not.toContain(KEY);
+    expect(said).not.toContain("event: done");
+  });
+
   it("keeps a conversation short and a long page clipped", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `turn ${i}` }));
     expect(cleanHistory(many)).toHaveLength(8);

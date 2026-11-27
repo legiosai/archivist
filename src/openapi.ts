@@ -113,7 +113,8 @@ export function openapi(version: string, server?: string): Json {
         parameters: UNIT, requestBody: jsonBody({ type: "object", required: ["page", "question"], properties: {
           page: { type: "integer", description: "The page on screen." }, question: { type: "string" },
           history: { type: "array", description: "Earlier turns of this conversation, oldest first (the last 8 are used).",
-            items: { type: "object", properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string" } } } } } }) },
+            items: { type: "object", properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string" } } } },
+          stream: { type: "boolean", description: "Answer as server-sent events while the model writes: `thinking` (once, a model that reasons first), `text` {text} for each piece, then `done` {model, pages, usage}, or `error` {error}. Lines starting with `:` keep the connection open." } } }) },
         { 200: ok("Answer", { type: "object", properties: { answer: { type: "string" }, model: { type: "string" },
           pages: { type: "array", items: { type: "integer" }, description: "The pages that were sent." },
           usage: { type: ["object", "null"], properties: { input: { type: "integer" }, output: { type: "integer" } } } } }),
@@ -146,7 +147,8 @@ export function openapi(version: string, server?: string): Json {
           latest: { type: "array", items: ref("Progress") }, all: { type: "array", items: ref("Progress") } } }) }) },
       "/api/v1/progress/{kind}/{slug}/{unit}": { put: op("progress", "Save a position: a page out of the count, or seconds out of the duration", {
         parameters: [...UNIT, PROFILE], requestBody: jsonBody({ type: "object", required: ["position", "total"],
-          properties: { position: { type: "number", minimum: 0 }, total: { type: "number", minimum: 0 } } }) },
+          properties: { position: { type: "number", minimum: 0 }, total: { type: "number", minimum: 0 },
+            within: { type: "number", minimum: -1, maximum: 1, description: "Pages only, optional: how far down the page (see Progress). Left out, the saved one is cleared." } } }) },
       { 200: ok("Saved", { type: "object", properties: { progress: ref("Progress"), newlyFinished: { type: "boolean" } } }) }) },
       "/api/v1/stats": { get: op("progress", "A profile's year: time watched, pages read, units and works finished, by month and by type", {
         parameters: [query("year", "Default this year.", { type: "integer" }), PROFILE] }) },
@@ -197,7 +199,9 @@ export function openapi(version: string, server?: string): Json {
           episode: { type: ["integer", "null"] }, volume: { type: ["integer", "null"] }, subtitles: { type: "integer" },
           progress: { oneOf: [ref("Progress"), { type: "null" }] }, href: { type: "string" } } },
         Progress: { type: "object", properties: { profile: { type: "string" }, workId: { type: "string" }, unitKey: { type: "string" },
-          position: { type: "number" }, total: { type: "number" }, finished: { type: "boolean" }, updatedAt: { type: "string", format: "date-time" } } },
+          position: { type: "number" }, total: { type: "number" }, finished: { type: "boolean" }, updatedAt: { type: "string", format: "date-time" },
+          within: { type: ["number", "null"], minimum: -1, maximum: 1,
+            description: "Pages only: how far down the page the first line on screen was, as a share of the page's height (negative while the screen still began on the page before). Null when only the page is known." } } },
       },
     },
   };

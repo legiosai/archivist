@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { EventBus, PDFFindController, PDFLinkService, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { AuthError, api, saveProgress, unitPath, useQuery, type WorkDetail } from "../api.ts";
+import { useAwake } from "../awake.ts";
 import { Icon } from "../icons.tsx";
 import { touchScreen, useKeyboard } from "../keyboard.ts";
-import { openPdf, quietL10n, textColumn, viewerKit, type PDFDocumentProxy } from "../pdf.ts";
+import { chapterOf, entryAt, pathTo, type Entry } from "../outline.ts";
+import { openPdf, quietL10n, textFit, viewerKit, type PDFDocumentProxy } from "../pdf.ts";
 import { AskPanel } from "./Ask.tsx";
 
 // pdf.js constants, spelled out so the menus can be built before the library loads.
@@ -18,6 +20,8 @@ const TEXT = "text";
 const MAX_TEXT_SCALE = 3;
 /** Bumped when what is remembered per book changes meaning. */
 const PREFS_V = 2;
+/** The same for the column found in a book: 2 knows left pages from right ones. */
+const COL_V = 2;
 
 type Theme = "original" | "sepia" | "dark" | "night";
 type Side = "" | "thumbs" | "outline";
@@ -34,8 +38,30 @@ const THUMB_W = 132;
 
 interface OutlineNode { title: string; dest: string | unknown[] | null; url: string | null; items: OutlineNode[] }
 interface Kit { viewer: PDFViewer; bus: EventBus; link: PDFLinkService; find: PDFFindController; doc: PDFDocumentProxy }
-/** The parts of pdf.js's view of one page that the column fit reads. */
-interface PageBox { width: number; scale: number; div: HTMLElement }
+/** The parts of pdf.js's view of one page that are read here. */
+interface PageBox {
+  width: number; scale: number; div: HTMLElement;
+  viewport: { height: number; convertToViewportPoint(x: number, y: number): number[] };
+}
+/** A place in the book: the page, and how far down it the screen starts (a share of its height), where that is known. */
+interface Place { page: number; within?: number }
+
+/** The index laid flat, in reading order: the order outline.ts counts in. */
+function flatten(items: OutlineNode[], depth = 0, out: { node: OutlineNode; depth: number }[] = []) {
+  for (const it of items) {
+    out.push({ node: it, depth });
+    if (it.items?.length) flatten(it.items, depth + 1, out);
+  }
+  return out;
+}
+
+/** How far down its page an index entry points, from 0 to 1; 0 when it only names the page. */
+function downThePage(view: PageBox["viewport"] | undefined, dest: unknown[]): number {
+  const kind = (dest[1] as { name?: string } | undefined)?.name;
+  const top = kind === "XYZ" ? dest[3] : kind === "FitH" || kind === "FitBH" ? dest[2] : kind === "FitR" ? dest[5] : null;
+  if (typeof top !== "number" || !view?.height) return 0;
+  return Math.max(0, Math.min(0.999, view.convertToViewportPoint(0, top)[1]! / view.height));
+}
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -98,7 +124,8 @@ function Glyph({ name }: { name: keyof typeof glyphs }) {
  * pages at a time, four paper colours, and the panel to ask about the page docked on the right.
  * On a phone the page takes the whole screen: the words fill its width, a tap hides and shows the
  * bars, two taps show the whole page, and the index, the menu and the panel come up as sheets.
- * The page in view is saved as you go.
+ * The place is saved as you go, down to the lines on screen, and the book opens there again; the
+ * bar and the index say which chapter that is, and the screen stays on while someone reads.
  */
 export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: string; onAuth: () => void }) {
   const base = unitPath(id, unitKey);
@@ -134,6 +161,12 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
   const [calm, setCalm] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [hint, setHint] = useState(false);
+  /** Every page has been read from the file: their sizes are the real ones, and the index can be placed. */
+  const [pagesLoaded, setPagesLoaded] = useState(false);
+  /** The index laid flat, each entry with the place it points at; `null` until that is known. */
+  const [entries, setEntries] = useState<Entry[] | null>(null);
+  /** The entry of the index being read, by its place in `entries`; -1 before the first. */
+  const [now, setNow] = useState(-1);
   const keyboard = useKeyboard();
 
   const root = useRef<HTMLDivElement>(null);
@@ -164,6 +197,16 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
   /** The words' column: [left, right] of the page's width, `null` without text, `undefined` until known. */
   const col = useRef<[number, number] | null | undefined>(undefined);
   const looking = useRef(false);
+  /** How far a page moves sideways to sit in the column while it is fitted: odd pages, even pages (of its width). */
+  const shift = useRef<[number, number]>([0, 0]);
+  /** Where the book was left, until the reader moves: the page is put back there as the pages take their size. */
+  const resume = useRef<Required<Place> | null>(null);
+  /** Where the screen starts, as last measured: what a save sends once the page is gone. */
+  const place = useRef<Place | null>(null);
+  const savedAs = useRef("");
+  const bareRef = useRef(false);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
   const scrubRef = useRef<number | null>(null);
   const scrubTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -171,7 +214,7 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
   // turned on their side, or a book without text: there the page's own width is the fit.
   const textScale = useCallback((): number | null => {
     const v = kit.current?.viewer, el = scroller.current, c = col.current;
-    if (!v || !el || !c || v.pagesRotation % 180 !== 0) return null;
+    if (!v || !el || !c || v.pagesRotation !== 0) return null;
     if (v.spreadMode !== SPREAD.none || (v.scrollMode !== SCROLL.vertical && v.scrollMode !== SCROLL.page)) return null;
     const box = v.getPageView(v.currentPageNumber - 1) as unknown as PageBox | undefined;
     if (!box?.width || !box.scale || !el.clientWidth) return null;
@@ -230,6 +273,77 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
     el.scrollTop = Math.max(0, el.scrollTop - b.offsetHeight);
   }, []);
 
+  // How much of the top of the page's view the bar lies over: on a phone, while the bars show.
+  const covered = useCallback((): number => {
+    const el = scroller.current, b = bar.current;
+    if (!el || !b || !narrowRef.current || bareRef.current) return 0;
+    return Math.max(0, b.getBoundingClientRect().bottom - el.getBoundingClientRect().top);
+  }, []);
+
+  // Where the reader is: the page in view and how far down it the first line they can see is.
+  // `null` when it cannot be measured (the page is not laid out), so what was known stays.
+  const placeNow = useCallback((): Place | null => {
+    const v = kit.current?.viewer, el = scroller.current;
+    if (!v?.pagesCount || !el?.isConnected) return null;
+    const page = v.currentPageNumber;
+    if (v.scrollMode !== SCROLL.vertical && v.scrollMode !== SCROLL.page) return { page };   // pages in a row: only the page is a place
+    const r = (v.getPageView(page - 1) as unknown as PageBox | undefined)?.div?.getBoundingClientRect();
+    if (!r?.height) return null;
+    const within = (el.getBoundingClientRect().top + covered() - r.top) / r.height;
+    return { page, within: Math.round(Math.max(-1, Math.min(1, within)) * 10000) / 10000 };
+  }, [covered]);
+
+  // Put the page back where it was left: the same lines at the top of what the reader sees.
+  const comeBack = useCallback(() => {
+    const v = kit.current?.viewer, el = scroller.current, to = resume.current;
+    if (!v || !el || !to) return;
+    const r = (v.getPageView(to.page - 1) as unknown as PageBox | undefined)?.div?.getBoundingClientRect();
+    if (!r?.height) return;
+    el.scrollTop += r.top - (el.getBoundingClientRect().top + covered() - to.within * r.height);
+  }, [covered]);
+  const comeBackRef = useRef(comeBack);
+  comeBackRef.current = comeBack;
+
+  // Save the place. A book just opened and not yet moved is still where it was left.
+  const save = useCallback((leaving = false) => {
+    place.current = placeNow() ?? place.current;
+    const at = resume.current ?? place.current;
+    const c = where.current.count;
+    if (!at || !c) return;
+    const key = `${at.page}:${at.within ?? ""}`;
+    if (key === savedAs.current) return;
+    savedAs.current = key;
+    void saveProgress(id, unitKey, at.page, c, leaving, at.within);
+  }, [id, unitKey, placeNow]);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  // Which entry of the index is being read: the last one that starts above the upper part of the screen.
+  const locate = useCallback(() => {
+    const list = entriesRef.current, v = kit.current?.viewer, el = scroller.current;
+    if (!list || !v?.pagesCount || !el) return;
+    const page = v.currentPageNumber;
+    const r = (v.getPageView(page - 1) as unknown as PageBox | undefined)?.div?.getBoundingClientRect();
+    const s = el.getBoundingClientRect();
+    const down = r?.height ? (s.top + s.height * 0.4 - r.top) / r.height : 0;
+    const i = entryAt(list, page + Math.max(0, Math.min(0.999, down)));
+    setNow((was) => (was === i ? was : i));
+  }, []);
+
+  // Each page moves to the column: in a book printed on both sides, left and right pages hold the
+  // words in different places. The style sheet applies it only while the column is fitted.
+  const moveSides = useCallback(() => {
+    const v = kit.current?.viewer;
+    if (!v) return;
+    const [odd, even] = shift.current;
+    for (let i = 0; i < v.pagesCount; i++) {
+      const div = (v.getPageView(i) as unknown as PageBox | undefined)?.div;
+      const by = i % 2 === 0 ? odd : even;   // page i + 1
+      if (by) div?.style.setProperty("--shift", `${by * 100}%`);
+      else div?.style.removeProperty("--shift");
+    }
+  }, []);
+
   // Find the words' column, once per book and browser; then fit to it if that is the zoom asked for.
   const findColumn = useCallback(() => {
     const k = kit.current;
@@ -237,16 +351,21 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
     looking.current = true;
     const doc = k.doc;
     const same = () => kit.current?.doc === doc;
-    textColumn(doc, k.viewer.currentPageNumber || 1, same)
-      .then((c) => {
+    textFit(doc, k.viewer.currentPageNumber || 1, same)
+      .then((f) => {
         if (!same()) return;
-        col.current = c;
-        store(colKey, { pages: doc.numPages, col: c });
-        if (wanted.current === TEXT) zoomRef.current(TEXT);
+        col.current = f?.col ?? null;
+        shift.current = f?.shift ?? [0, 0];
+        store(colKey, { v: COL_V, pages: doc.numPages, col: col.current, shift: shift.current });
+        moveSides();
+        if (wanted.current === TEXT) {
+          zoomRef.current(TEXT);
+          comeBackRef.current();   // the page grew: the place it was left at moved with it
+        }
       })
       .catch(() => undefined)   // the pages could not be read: try again the next time the book is opened
       .finally(() => { looking.current = false; });
-  }, [colKey]);
+  }, [colKey, moveSides]);
   const findColumnRef = useRef(findColumn);
   findColumnRef.current = findColumn;
 
@@ -257,8 +376,15 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
     setReady(false);
     setError("");
     col.current = undefined;
+    shift.current = [0, 0];
     fit.current = null;
     lockLeft.current = null;
+    resume.current = null;
+    place.current = null;
+    savedAs.current = "";
+    setPagesLoaded(false);
+    setEntries(null);
+    setNow(-1);
     (async () => {
       try {
         const [w, meta] = await Promise.all([
@@ -271,8 +397,10 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
         // Beside the page it opens as it was left. On a phone it is a sheet over half of the page: it opens when asked.
         setAsking(meta.assistant && !window.matchMedia(NARROW).matches ? stored("ask:open", true) : false);
         const unit = w.unitList.find((u) => u.key === unitKey);
-        const saved = unit?.progress && !unit.progress.finished ? unit.progress.position : 1;
-        const start = Math.max(1, startAt || saved);
+        const left = unit?.progress && !unit.progress.finished ? unit.progress : null;
+        const start = Math.max(1, startAt || (left?.position ?? 1));
+        // Opened where it was left, and not at a page asked for: the same lines, not only the same page.
+        const within = !startAt && typeof left?.within === "number" ? left.within : null;
 
         const lib = await viewerKit();
         if (dead || !scroller.current || !viewerDiv.current) return;
@@ -294,9 +422,13 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
           const p = prefsRef.current;
           viewer.scrollMode = p.scroll;
           viewer.spreadMode = p.spread;
-          if (start > 1) viewer.currentPageNumber = Math.min(start, viewer.pagesCount);
+          const first = Math.min(start, viewer.pagesCount);
+          if (first > 1) viewer.currentPageNumber = first;
+          moveSides();
           zoomRef.current(p.scale);
-          if (start > 1) clearBar();
+          if (within !== null) { resume.current = { page: first, within }; comeBack(); }
+          else if (first > 1) clearBar();
+          place.current = placeNow();
           setPage(viewer.currentPageNumber);
           setReady(true);
           scroller.current?.focus({ preventScroll: true });
@@ -307,6 +439,9 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
           if (fit.current !== null) requestAnimationFrame(align);
         });
         bus.on("scalechanging", (e: { scale: number; presetValue?: string }) => noteScale(e.scale, e.presetValue));
+        // Until here every page was taken to be the size of the first one: a cover of another size
+        // above the place the book was left at has just moved it.
+        bus.on("pagesloaded", () => { comeBackRef.current(); setPagesLoaded(true); });
         bus.on("updatefindmatchescount", (e: { matchesCount: { current: number; total: number } }) =>
           setFound((f) => ({ state: f?.state ?? FOUND, current: e.matchesCount.current, total: e.matchesCount.total })));
         bus.on("updatefindcontrolstate", (e: { state: number; matchesCount?: { current: number; total: number } }) =>
@@ -316,8 +451,8 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
         task.onProgress = ({ loaded: l, total }: { loaded: number; total: number }) => total && setLoaded(Math.min(1, l / total));
         const doc = await task.promise;
         if (dead) return;   // the cleanup below destroys the task, and the document with it
-        const known = stored<{ pages: number; col: [number, number] | null } | null>(colKey, null);
-        if (known && known.pages === doc.numPages) col.current = known.col;
+        const known = stored<{ v?: number; pages: number; col: [number, number] | null; shift?: [number, number] } | null>(colKey, null);
+        if (known && known.v === COL_V && known.pages === doc.numPages) { col.current = known.col; shift.current = known.shift ?? [0, 0]; }
         kit.current = { viewer, bus, link, find, doc };
         viewer.setDocument(doc);
         link.setDocument(doc, null);
@@ -331,22 +466,87 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
     })();
     return () => {
       dead = true;
+      saveRef.current(true);
       const k = kit.current;
       kit.current = null;
-      const { page: p, count: c } = where.current;
-      if (p && c) void saveProgress(id, unitKey, p, c, true);
       k?.viewer.setDocument(null as unknown as PDFDocumentProxy);
       void task?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, unitKey, base, onAuth]);
 
-  // Save the page in view, a moment after it settles.
+  // Save the place a moment after the page settles, and at once when the screen goes away: a phone
+  // that is locked or left for another app may never come back to this page.
   useEffect(() => {
     if (!ready || !page || !count) return;
-    const t = setTimeout(() => void saveProgress(id, unitKey, page, count), 800);
+    const t = setTimeout(() => save(), 800);
     return () => clearTimeout(t);
-  }, [page, count, ready, id, unitKey]);
+  }, [page, count, ready, save]);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !ready) return;
+    let frame = 0;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; place.current = placeNow() ?? place.current; locate(); });
+      clearTimeout(t);
+      t = setTimeout(() => save(), 900);
+    };
+    const away = () => { if (document.visibilityState === "hidden") save(true); };
+    const gone = () => save(true);
+    // The book stays where it was left until the reader moves it.
+    const moved = () => { resume.current = null; };
+    const signs = ["pointerdown", "wheel", "keydown", "touchstart"] as const;
+    for (const s of signs) window.addEventListener(s, moved, { capture: true, passive: true });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("visibilitychange", away);
+    window.addEventListener("pagehide", gone);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(t);
+      for (const s of signs) window.removeEventListener(s, moved, { capture: true });
+      el.removeEventListener("scroll", onScroll);
+      document.removeEventListener("visibilitychange", away);
+      window.removeEventListener("pagehide", gone);
+    };
+  }, [ready, save, placeNow, locate]);
+
+  // Reading takes longer than a phone waits before it dims.
+  useAwake(ready && !error);
+
+  // Where each entry of the book's index points, once every page is known: its page, and how far
+  // down it. From there the bar and the index can say which chapter is being read.
+  useEffect(() => {
+    const k = kit.current;
+    if (!k || !outline?.length || !pagesLoaded) { setEntries(null); return; }
+    let dead = false;
+    const { doc, viewer } = k;
+    void (async () => {
+      const out: Entry[] = [];
+      for (const { node, depth } of flatten(outline)) {
+        let at = 0;
+        try {
+          const dest = typeof node.dest === "string" ? await doc.getDestination(node.dest) : node.dest;
+          const ref: unknown = Array.isArray(dest) ? dest[0] : null;
+          const n = ref && typeof ref === "object"
+            ? doc.cachedPageNumber(ref as Parameters<typeof doc.cachedPageNumber>[0]) ?? (await doc.getPageIndex(ref as Parameters<typeof doc.getPageIndex>[0])) + 1
+            : Number.isInteger(ref) ? (ref as number) + 1 : 0;
+          if (n >= 1 && n <= doc.numPages) at = n + downThePage((viewer.getPageView(n - 1) as unknown as PageBox | undefined)?.viewport, dest as unknown[]);
+        } catch { /* an entry that points nowhere */ }
+        if (dead) return;
+        out.push({ title: node.title, depth, at });
+      }
+      setEntries(out);
+    })();
+    return () => { dead = true; };
+  }, [outline, pagesLoaded]);
+  useEffect(() => { locate(); }, [entries, page, locate]);
+  const order = useMemo(() => new Map((outline ? flatten(outline) : []).map((f, i) => [f.node, i])), [outline]);
+  const reading = useMemo(() => new Set(entries && now >= 0 ? pathTo(entries, now) : []), [entries, now]);
+  const chapter = useMemo(() => {
+    const i = entries ? chapterOf(entries, now, count) : -1;
+    return i < 0 ? "" : entries![i]!.title.trim();
+  }, [entries, now, count]);
 
   // Remember how this book is read: the zoom once it settles, the rest as it changes.
   useEffect(() => {
@@ -698,6 +898,7 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
   // The first time the bars go away in this browser, a line says how to bring them back.
   const sideOpen = prefs.side !== "" && ready;
   const bare = narrow && calm && !menu && !sideOpen && !finding && !presenting;
+  bareRef.current = bare;
   useEffect(() => {
     if (!bare || stored("book:hint", false)) return;
     store("book:hint", true);
@@ -782,7 +983,10 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
           {!narrow && (
             <button className={`ctl ${prefs.side ? "on" : ""}`} onClick={openSide} aria-pressed={!!prefs.side} title="Índice y miniaturas"><Glyph name="sidebar" /></button>
           )}
-          <span className="book-title" title={work?.title}>{work?.title}{unit && work && unit.label !== work.title && work.unitList.length > 1 ? <span className="faint"> · {unit.label}</span> : null}</span>
+          <span className={`book-title ${chapter ? "in-chapter" : ""}`} title={chapter ? `${work?.title ?? ""} · ${chapter}` : work?.title}>
+            <span className="book-name">{work?.title}{unit && work && unit.label !== work.title && work.unitList.length > 1 ? <span className="faint"> · {unit.label}</span> : null}</span>
+            {chapter && <span className="book-chapter">{chapter}</span>}
+          </span>
         </div>
 
         {!narrow && (
@@ -855,7 +1059,7 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
             <button className="ctl" onClick={() => setPref("side", "")} aria-label="Cerrar"><Icon name="close" /></button>
           </div>
           {prefs.side === "outline" && outline?.length ? (
-            <Outline items={outline} onGo={(it) => {
+            <Outline items={outline} order={order} now={now} reading={reading} onGo={(it) => {
               const k = kit.current;
               if (it.dest) void k?.link.goToDestination(it.dest as string);
               else if (it.url) window.open(it.url, "_blank", "noopener");
@@ -970,24 +1174,51 @@ export default function Book({ id, unitKey, onAuth }: { id: string; unitKey: str
   );
 }
 
-/** The book's own index, as the PDF carries it; chapters open to show their sections. */
-function Outline({ items, onGo, depth = 0 }: { items: OutlineNode[]; onGo: (it: OutlineNode) => void; depth?: number }) {
+interface OutlineProps {
+  items: OutlineNode[];
+  onGo: (it: OutlineNode) => void;
+  /** Each entry's place in reading order, which is how the one being read is told. */
+  order: Map<OutlineNode, number>;
+  now: number;
+  /** The entry being read and the ones it is inside of. */
+  reading: Set<number>;
+  depth?: number;
+}
+
+/**
+ * The book's own index, as the PDF carries it; chapters open to show their sections. The entry
+ * being read is marked, the chapters it is inside of open, and the list opens on it.
+ */
+function Outline({ items, onGo, order, now, reading, depth = 0 }: OutlineProps) {
+  const box = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    const list = box.current;
+    const item = depth ? null : list?.querySelector<HTMLElement>(".outline-item.now");
+    if (!list || !item) return;
+    const l = list.getBoundingClientRect(), r = item.getBoundingClientRect();
+    if (r.top < l.top + 8 || r.bottom > l.bottom - 8) list.scrollTop += r.top - l.top - (l.height - r.height) / 2;
+  }, [now, depth]);
   return (
-    <ul className={`outline ${depth ? "sub" : ""}`}>
-      {items.map((it, i) => (
-        <li key={i}>
-          {it.items?.length ? (
-            <details open={depth === 0 && items.length < 12}>
-              <summary>
-                <button className="outline-item" onClick={(e) => { e.preventDefault(); onGo(it); }}>{it.title}</button>
-              </summary>
-              <Outline items={it.items} onGo={onGo} depth={depth + 1} />
-            </details>
-          ) : (
-            <button className="outline-item leaf" onClick={() => onGo(it)}>{it.title}</button>
-          )}
-        </li>
-      ))}
+    <ul ref={box} className={`outline ${depth ? "sub" : ""}`}>
+      {items.map((it, i) => {
+        const n = order.get(it) ?? -2;
+        const mark = n === now ? "now" : reading.has(n) ? "around" : "";
+        const current = n === now ? "location" as const : undefined;
+        return (
+          <li key={i}>
+            {it.items?.length ? (
+              <details open={(depth === 0 && items.length < 12) || reading.has(n)}>
+                <summary>
+                  <button className={`outline-item ${mark}`} aria-current={current} onClick={(e) => { e.preventDefault(); onGo(it); }}>{it.title}</button>
+                </summary>
+                <Outline items={it.items} onGo={onGo} order={order} now={now} reading={reading} depth={depth + 1} />
+              </details>
+            ) : (
+              <button className={`outline-item leaf ${mark}`} aria-current={current} onClick={() => onGo(it)}>{it.title}</button>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

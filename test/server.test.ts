@@ -117,6 +117,17 @@ describe("server", () => {
     expect(await saved.json()).toMatchObject({ newlyFinished: true, progress: { finished: true } });
     const progress = await (await api("/api/v1/progress")).json() as { latest: { workId: string; work: { finished: number } }[] };
     expect(progress.latest[0]).toMatchObject({ workId: "pages/berserk", work: { finished: 1 } });
+
+    // The place inside the page: kept when a reader says it, cleared by a save that only knows the page.
+    const put = (body: unknown) => api("/api/v1/progress/pages/berserk/v01", { method: "PUT", body: JSON.stringify(body) });
+    expect(await (await put({ position: 2, total: 3, within: 0.42 })).json()).toMatchObject({ progress: { position: 2, within: 0.42 } });
+    const unit = async () => (await (await api("/api/v1/works/pages/berserk")).json() as { unitList: { progress: { within: number | null } }[] }).unitList[0]!.progress;
+    expect((await unit()).within).toBe(0.42);
+    expect((await put({ position: 2, total: 3, within: -0.2 })).status).toBe(200);
+    expect((await put({ position: 2, total: 3, within: 3 })).status).toBe(400);
+    expect((await put({ position: 2, total: 3, within: "abajo" })).status).toBe(400);
+    await put({ position: 2, total: 3 });
+    expect((await unit()).within).toBeNull();
     const ev = await (await api("/api/v1/events?since=0")).json() as { events: { type: string }[] };
     expect(ev.events.map((e) => e.type)).toEqual(["finished"]);
   });

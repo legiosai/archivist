@@ -4,7 +4,7 @@
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
-import { columnOf, samplePages, type Spans } from "./column.ts";
+import { fitOf, samplePages, type Fit, type Spans } from "./column.ts";
 
 // The viewer module reads the library from this global when it is evaluated.
 (globalThis as { pdfjsLib?: unknown }).pdfjsLib = pdfjs;
@@ -31,12 +31,12 @@ export function openPdf(url: string) {
 const HEAD = 0.055, FOOT = 0.92;
 
 /**
- * The column the book's words sit in, as [left, right] in fractions of the page's width, from the
- * text of a few pages spread over the book (column.ts). `null` when the pages have no text; it
- * throws when the pages could not be read at all.
+ * How to fit the book's words to the width: the column they sit in and how far its left and right
+ * pages move to share it, from the text of a few pages spread over the book (column.ts). `null`
+ * when the pages have no text; it throws when the pages could not be read at all.
  */
-export async function textColumn(doc: pdfjs.PDFDocumentProxy, near: number, alive: () => boolean): Promise<[number, number] | null> {
-  const pages: Spans[] = [];
+export async function textFit(doc: pdfjs.PDFDocumentProxy, near: number, alive: () => boolean): Promise<Fit | null> {
+  const pages: { n: number; spans: Spans }[] = [];
   const picked = samplePages(doc.numPages, near);
   let unread = 0;
   for (const n of picked) {
@@ -56,14 +56,14 @@ export async function textColumn(doc: pdfjs.PDFDocumentProxy, near: number, aliv
         if (y < HEAD || y > FOOT) continue;
         spans.push([t[4]! / view.width, (t[4]! + item.width) / view.width]);
       }
-      pages.push(spans);
+      pages.push({ n, spans });
     } catch {
       unread++;
     }
   }
   // Pages that could not be read are not pages without text: say so, instead of "no column".
   if (unread > picked.length / 2) throw new Error("could not read the pages");
-  return alive() ? columnOf(pages) : null;
+  return alive() ? fitOf(pages) : null;
 }
 
 /** Strings for the few labels pdf.js puts on pages; it would otherwise fetch locale files. */

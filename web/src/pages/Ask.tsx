@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ask, type AskTurn } from "../api.ts";
+import { askStream, type AskTurn } from "../api.ts";
 import { Icon } from "../icons.tsx";
 import { touchScreen } from "../keyboard.ts";
 import { Markdown } from "../markdown.tsx";
@@ -51,24 +51,36 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, t
   const [draft, setDraft] = useState("");
   const [quote, setQuote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The answer being written, as far as it has come; `null` before its first word. */
+  const [live, setLive] = useState<string | null>(null);
+  const [thinking, setThinking] = useState(false);
   const [error, setError] = useState("");
   const [model, setModel] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const writing = useRef<AbortController | null>(null);
 
   useEffect(() => { setLines([]); setError(""); setQuote(null); }, [id, unitKey]);
+  // Leaving the book, or the panel, stops an answer that is still being written.
+  useEffect(() => () => writing.current?.abort(), [id, unitKey]);
   // A new selection on the page becomes the fragment the next question is about.
   useEffect(() => {
     if (!selected?.text.trim()) return;
     setQuote(selected.text.trim().replace(/\s+/g, " ").slice(0, QUOTE_CHARS));
     if (!touchScreen()) box.current?.focus();
   }, [selected?.n, selected?.text]);
-  // Keep the last question at the top, so a long answer is read from its first line.
+  // A new question goes to the top, so its answer is read from its first line. While the answer is
+  // being written there is not yet enough of it to scroll that far: the list follows it until the
+  // question reaches the top, and then stays. A reader who scrolls on their own is left alone.
+  const asked = lines.reduce((n, l) => n + (l.role === "user" ? 1 : 0), 0);
+  const following = useRef(true);
+  useEffect(() => { following.current = true; }, [asked]);
   useEffect(() => {
-    const asked = list.current?.querySelectorAll<HTMLElement>(".ask-line.user");
-    const last = asked?.[asked.length - 1];
+    if (!following.current) return;
+    const questions = list.current?.querySelectorAll<HTMLElement>(".ask-line.user");
+    const last = questions?.[questions.length - 1];
     if (last && list.current) list.current.scrollTop = last.offsetTop - 8;
-  }, [lines, busy]);
+  }, [asked, live, lines.length]);
   // With a keyboard at hand, typing can start at once. On a phone, focusing would bring the keyboard
   // up over the page before the reader chose between typing and one of the ready-made questions.
   useEffect(() => { if (!touchScreen()) box.current?.focus(); }, []);
@@ -83,15 +95,35 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, t
     setQuote(null);
     setError("");
     setBusy(true);
+    setLive(null);
+    setThinking(false);
     // On a phone: the keyboard away and the whole screen for the answer.
     if (onTall) { box.current?.blur(); onTall(true); }
+    const stop = new AbortController();
+    writing.current = stop;
+    // The pieces come many a second: the panel is redrawn at most a dozen times in one.
+    let written = "";
+    let paint: ReturnType<typeof setTimeout> | undefined;
+    const keep = () => { if (written.trim()) setLines((l) => [...l, { role: "assistant", content: written.trim() }]); };
     try {
-      const a = await ask(id, unitKey, page, content, history);
-      setModel(a.model);
+      const a = await askStream(id, unitKey, page, content, history, {
+        onThinking: () => setThinking(true),
+        onText: (piece) => {
+          written += piece;
+          paint ??= setTimeout(() => { paint = undefined; setLive(written); }, 80);
+        },
+      }, stop.signal);
+      if (a.model) setModel(a.model);
       setLines((l) => [...l, { role: "assistant", content: a.answer }]);
     } catch (e) {
-      setError(spanish(String((e as Error).message)));
+      // Stopped by the reader, or cut on the way: what was written stays, as far as it got.
+      keep();
+      if (!stop.signal.aborted) setError(spanish(String((e as Error).message)));
     } finally {
+      clearTimeout(paint);
+      if (writing.current === stop) writing.current = null;
+      setLive(null);
+      setThinking(false);
       setBusy(false);
     }
   }
@@ -111,7 +143,7 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, t
         )}
         <button className="ctl" onClick={onClose} aria-label="Cerrar"><Icon name="close" /></button>
       </header>
-      <div className="ask-lines" ref={list}>
+      <div className="ask-lines" ref={list} onWheel={() => { following.current = false; }} onTouchMove={() => { following.current = false; }}>
         {!lines.length && (
           <div className="ask-empty">
             <p>Preguntá lo que no se entienda de lo que estás leyendo, o elegí una de las ayudas de abajo.</p>
@@ -134,7 +166,9 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, t
             )}
           </div>
         ))}
-        {busy && <div className="ask-line assistant pending"><p>Leyendo y pensando…</p></div>}
+        {busy && (live
+          ? <div className="ask-line assistant"><Markdown text={live} live /></div>
+          : <div className="ask-line assistant pending"><p>{thinking ? "Pensando la respuesta…" : "Leyendo la página…"}</p></div>)}
         {error && <p className="notice bad">{error}</p>}
       </div>
       <div className="ask-aids" role="toolbar" aria-label="Ayudas para estudiar">
@@ -153,7 +187,9 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, t
                   aria-label="Tu pregunta" maxLength={2000}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(draft); } }} />
-        <button className="btn primary" type="submit" disabled={busy || (!draft.trim() && !quote)} aria-label="Enviar"><Icon name="send" /></button>
+        {busy
+          ? <button className="btn ask-stop" type="button" onClick={() => writing.current?.abort()} aria-label="Detener la respuesta" title="Detener la respuesta"><Icon name="stop" /></button>
+          : <button className="btn primary" type="submit" disabled={!draft.trim() && !quote} aria-label="Enviar"><Icon name="send" /></button>}
       </form>
       <p className="faint small ask-note">
         Se envían al modelo{model ? ` (${model})` : ""} tu pregunta, esta página y las dos anteriores. Nada más del libro.
@@ -170,6 +206,9 @@ function spanish(msg: string): string {
   if (/rate-limited/.test(msg)) return "El modelo está saturado. Probá de nuevo en un momento.";
   if (/too long/.test(msg)) return "El modelo tardó demasiado en responder. Probá de nuevo.";
   if (/could not be reached/.test(msg)) return "No se pudo llegar al modelo desde el servidor.";
+  if (/stopped answering/.test(msg)) return "El modelo dejó de responder a mitad de camino.";
+  if (/sent no answer/.test(msg)) return "El modelo no escribió ninguna respuesta. Probá de nuevo.";
+  if (/Failed to fetch|NetworkError|Load failed|network/i.test(msg)) return "Se cortó la conexión con el servidor.";
   if (/is off/.test(msg)) return "El asistente está apagado en el servidor.";
   return `El modelo no respondió (${msg}).`;
 }

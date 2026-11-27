@@ -632,8 +632,33 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
     const sent: { n: number; text: string }[] = [];
     for (let i = Math.max(1, n - PAGES_BEFORE); i <= n; i++) sent.push({ n: i, text: await textOf(unit, i, pages.count) });
     if (!sent.some((s) => s.text)) throw new HttpError(400, "these pages carry no text (a scanned book?): there is nothing to send");
-    json(res, 200, await assistant.ask({ title: work.title, unit: unit.label, page: n, count: pages.count, pages: sent, question,
-      history: cleanHistory(b.history) }));
+    const asked = { title: work.title, unit: unit.label, page: n, count: pages.count, pages: sent, question, history: cleanHistory(b.history) };
+    if (b.stream !== true) {
+      json(res, 200, await assistant.ask(asked));
+      return;
+    }
+    // `stream: true`: the answer as server-sent events while the model writes it. The response opens
+    // before the model is asked and a comment goes out every few seconds, so a proxy that gives up
+    // on a silent connection does not cut a model that thinks for a while before its first word.
+    const gone = new AbortController();
+    res.on("close", () => gone.abort());
+    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" });
+    const event = (name: string, data: unknown) => { res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`); };
+    res.write(": archivist\n\n");
+    const beat = setInterval(() => { res.write(": still here\n\n"); }, 10_000);
+    try {
+      for await (const piece of assistant.stream(asked, gone.signal)) {
+        if (piece.type === "text") event("text", { text: piece.text });
+        else if (piece.type === "thinking") event("thinking", {});
+        else event("done", { model: piece.answer.model, pages: piece.answer.pages, usage: piece.answer.usage });
+      }
+    } catch (err) {
+      if (!(err instanceof AssistantError)) console.error(err);
+      if (!gone.signal.aborted) event("error", { error: err instanceof AssistantError ? err.message : "the model stopped answering" });
+    } finally {
+      clearInterval(beat);
+      res.end();
+    }
   });
 
   route("GET", "/api/v1/units/:kind/:slug/:unit/pages/:n", async (_q, res, p, url) => {
@@ -790,7 +815,10 @@ export function createApp(cfg: Config, options: { fetch?: typeof fetch } = {}): 
       throw new HttpError(400, "position and total must be numbers");
     }
     const kind = unit.format === "video" ? "video" : "pages";
-    json(res, 200, store.save(work.id, unit.key, position, total, kind, new Date(), who(req, new URL(req.url ?? "/", "http://x"))));
+    // How far down the page: only pages have it, and only a reader that scrolls a page knows it.
+    const within = kind === "pages" && b.within !== undefined && b.within !== null ? Number(b.within) : null;
+    if (within !== null && !(within >= -1 && within <= 1)) throw new HttpError(400, "within must be between -1 and 1");
+    json(res, 200, store.save(work.id, unit.key, position, total, kind, new Date(), who(req, new URL(req.url ?? "/", "http://x")), within));
   });
 
   route("GET", "/api/v1/stats", (req, res, _p, url) => {

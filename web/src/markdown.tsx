@@ -70,13 +70,20 @@ function BlockView({ b }: { b: Block }): ReactNode {
   }
 }
 
-function Blocks({ blocks }: { blocks: Block[] }) {
+/** A diagram, a chart or a formula: something drawn from its source, which half-written draws nothing. */
+const isDrawn = (b: Block) => b.t === "math" || (b.t === "code" && /^(mermaid|chart|math|latex|tex)$/.test(b.lang));
+
+function Blocks({ blocks, live = false }: { blocks: Block[]; live?: boolean }) {
   // A quiz keeps its answers folded: everything after a "Respuestas" heading opens on request.
   const at = blocks.findIndex((b) => b.t === "h" && isAnswersHeading(b.text));
   const shown = at < 0 ? blocks : blocks.slice(0, at);
+  // While the answer is still being written, its last block may be half of a diagram: it waits.
+  const waiting = live && at < 0 && shown.length > 0 && isDrawn(shown[shown.length - 1]!);
   return (
     <>
-      {shown.map((b, i) => <BlockView key={i} b={b} />)}
+      {shown.map((b, i) => (waiting && i === shown.length - 1
+        ? <p key={i} className="md-rich-wait">Dibujando…</p>
+        : <BlockView key={i} b={b} />))}
       {at >= 0 && (
         <details className="md-answers">
           <summary>Ver respuestas</summary>
@@ -87,7 +94,10 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   );
 }
 
-/** An answer as the model wrote it, built as elements: the model formats, it never injects. */
-export function Markdown({ text }: { text: string }) {
-  return <div className="md"><Blocks blocks={parseBlocks(text)} /></div>;
+/**
+ * An answer as the model wrote it, built as elements: the model formats, it never injects.
+ * `live` while it is still being written: what is there is shown, and a drawing waits for its end.
+ */
+export function Markdown({ text, live = false }: { text: string; live?: boolean }) {
+  return <div className={`md ${live ? "md-live" : ""}`}><Blocks blocks={parseBlocks(text)} live={live} /></div>;
 }
