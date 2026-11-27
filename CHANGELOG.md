@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.1 — 2026-11-27
+
+- Fixed: the PDF viewer could not use its own decoders. They are WebAssembly, and the server's
+  content security policy refused to compile it, so every book with a colour profile logged a
+  warning and was drawn with approximate colours, and JPEG 2000 and JBIG2 images (scanned books)
+  fell back to slower decoders. The policy now allows WebAssembly (`'wasm-unsafe-eval'`) and
+  nothing else new: scripts still come only from the server itself, and `eval()` and inline
+  scripts stay refused.
+
 ## 0.11.0 — 2026-11-27
 
 - A book opens on the lines where you left it, not at the top of that page. With the page fitted
