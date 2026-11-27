@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.0 — 2026-11-27
+
+- A book on a phone is read, not squinted at. The page takes the whole screen and opens **fitted
+  to the text**: the words fill the width and the printed margins stay off screen, so the same
+  page reads around 40 % larger. archivist finds the column from the text of a few pages
+  spread over the book, keeping the headings and labels that hang in the margin and leaving out
+  running heads and page numbers; it is remembered per book. "Ajustar al texto" is in the zoom
+  menu on a computer too. A scanned book, with no text to measure, fits its page's width.
+- The bars lie over the page and get out of the way: they go when you push the page up to read on,
+  and one tap brings them back (the first time, a line says so). Two taps go between the text and
+  the whole page; two fingers zoom as before; with pages one at a time, a tap on a side or a swipe
+  turns the page. Pressing and holding still selects text.
+- Under the page, a bar for the thumb: the index, a slider through the whole book and the page
+  number to type. On top, only what is used while reading: back, the title, fit to the text,
+  search, the menu and the panel to ask.
+- The index and the page thumbnails are a drawer with rows a finger can hit, and it closes when you
+  pick a place. The menu is a sheet from below, with the size on top. Search takes the top of the
+  screen, and matches are not hidden under it.
+- The panel to ask is a sheet over the lower half, text at reading size, and it takes the whole
+  screen for the answer (a button puts it back). It no longer brings the keyboard up when it
+  opens, and while you type the viewer is the part of the screen the keyboard leaves free. The
+  question still goes with the page that was in view.
+- Everywhere on a phone: fields no longer make the browser zoom in when focused (their text is
+  16px), buttons in the readers are 44px to the finger, the page slider has a strip to grab
+  instead of a 4px line, and the bars keep clear of the home indicator.
+- A book in one PDF shows "Página 175 de 548" on its page instead of "0 de 1 leídos", and no list
+  of its one volume; the button reads "Leer" or "Seguir".
+- Fixed: on an iPhone a pinch zoomed twice as much as the fingers asked (Safari reports it as a
+  gesture and as touches); the index of a PDF could change the zoom on every entry; the colours
+  of a profile were drawn at the size of the paper swatches in the book menu; the chips on a
+  work's page were pushed 8px in; "Modo presentación" was offered where there is no full screen
+  (an iPhone), with no way back; the pinch was measured from the wrong corner by the height of the
+  bar.
+
 ## 0.9.0 — 2026-11-26
 
 - Books open in a PDF viewer like a browser's own (pdf.js, the engine of Firefox's): the real

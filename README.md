@@ -22,7 +22,7 @@ MIT
 
 </div>
 
-> **Status: 0.8.** It reads, plays, remembers and takes uploads, with a profile for each person,
+> **Status: 0.10.** It reads, plays, remembers and takes uploads, with a profile for each person,
 > posters and details from TMDB or AniList if you turn them on, a model to ask about the page of
 > a book if you turn it on, a year in review, OPDS for phones and an API and MCP server for tools. Spanish UI first.
 > [The plan](docs/plan.md) is complete; what changed is in the [changelog](CHANGELOG.md).
@@ -38,7 +38,10 @@ A self-hosted library for what you already have on disk:
   you stopped on any device. If you turn it on, a panel beside the page asks a
   model of your choice (DeepSeek, OpenRouter, a local Ollama: anything that
   speaks chat completions) about what you are reading. It gets the page on
-  screen and the two before it, and nothing else of the book.
+  screen and the two before it, and nothing else of the book. On a phone the
+  page takes the whole screen, zoomed to the text with the printed margins left
+  out; a tap hides and shows the controls, and the index, the menu and the
+  panel come up as sheets.
 - **A player** for films, series and anime: what the browser plays directly,
   the rest remuxed on the fly with ffmpeg, subtitles included (beside the file or
   inside it). Pick the audio track and the subtitles; each profile's choice carries

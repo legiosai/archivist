@@ -71,8 +71,10 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
   const started = next?.progress && !next.progress.finished;
   const share = work.units ? (work.finished / work.units) * 100 : 0;
   const d = work.details;
-  // A film in one file needs no list of its one file: the button above plays it.
-  const single = work.type === "film" && work.unitList.length === 1;
+  // A film in one file, or a book in one PDF, needs no list of its one file: the button above opens it.
+  const single = (work.type === "film" || work.type === "book") && work.unitList.length === 1;
+  // And what is read of a one-volume book is its pages, not "0 of 1".
+  const pages = single && !video && next?.progress && !next.progress.finished ? next.progress : null;
 
   return (
     <>
@@ -92,14 +94,19 @@ export function WorkPage({ id, onAuth }: { id: string; onAuth: () => void }) {
             <div className="chips">
               {work.year && <span className="chip">{work.year}</span>}
               {d.runtime && <span className="chip"><Icon name="clock" className="icon tiny" />{minutes(d.runtime)}{work.type !== "film" && video ? " por episodio" : ""}</span>}
-              <span className="chip">{work.units} {video ? (work.type === "film" ? (work.units === 1 ? "archivo" : "archivos") : work.units === 1 ? "episodio" : "episodios") : work.units === 1 ? "tomo" : "tomos"}</span>
+              {!(single && !video) && <span className="chip">{work.units} {video ? (work.type === "film" ? (work.units === 1 ? "archivo" : "archivos") : work.units === 1 ? "episodio" : "episodios") : work.units === 1 ? "tomo" : "tomos"}</span>}
               {seasons.length > 1 && <span className="chip">{seasons.length} temporadas</span>}
               {work.reading && !video && <span className="chip">{work.reading === "rtl" ? "Derecha a izquierda" : work.reading === "vertical" ? "Vertical" : "Izquierda a derecha"}</span>}
             </div>
             {d.genres.length > 0 && <p className="genres">{d.genres.join(" · ")}</p>}
             {d.credits.length > 0 && <p className="credits"><span className="faint">{CREDIT[work.type]}</span> {d.credits.join(", ")}</p>}
             {d.overview && <Overview text={d.overview} />}
-            {work.units > 0 && (
+            {pages ? (
+              <div className="progress-line">
+                <div className="spread"><span>Página {pages.position} de {pages.total}</span><span>{Math.round((pages.position / Math.max(1, pages.total)) * 100)} %</span></div>
+                <div className="bar"><div style={{ width: `${(pages.position / Math.max(1, pages.total)) * 100}%` }} /></div>
+              </div>
+            ) : work.units > 0 && (
               <div className="progress-line">
                 <div className="spread"><span>{work.finished} de {work.units} {video ? "vistos" : "leídos"}</span><span>{Math.round(share)} %</span></div>
                 <div className="bar"><div style={{ width: `${share}%` }} /></div>

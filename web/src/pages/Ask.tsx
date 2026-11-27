@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ask, type AskTurn } from "../api.ts";
 import { Icon } from "../icons.tsx";
+import { touchScreen } from "../keyboard.ts";
 import { Markdown } from "../markdown.tsx";
 import { CopyButton } from "../rich/code.tsx";
 
@@ -38,10 +39,13 @@ function withQuote(question: string, quote: string | null): string {
  * A conversation about the page on screen. Each question goes with the page it was asked on; the
  * server sends the model that page and the two before it, never one further on.
  */
-export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }: {
+export function AskPanel({ id, unitKey, page, onClose, quote: selected = null, tall = false, onTall }: {
   id: string; unitKey: string; page: number; onClose: () => void;
   /** Text the reader selected on the page; `n` changes on every new selection so the same text can be sent twice. */
   quote?: { text: string; n: number } | null;
+  /** On a phone the panel is a sheet over the lower half of the page, and can take the whole screen. */
+  tall?: boolean;
+  onTall?: (tall: boolean) => void;
 }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [draft, setDraft] = useState("");
@@ -57,7 +61,7 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }:
   useEffect(() => {
     if (!selected?.text.trim()) return;
     setQuote(selected.text.trim().replace(/\s+/g, " ").slice(0, QUOTE_CHARS));
-    box.current?.focus();
+    if (!touchScreen()) box.current?.focus();
   }, [selected?.n, selected?.text]);
   // Keep the last question at the top, so a long answer is read from its first line.
   useEffect(() => {
@@ -65,7 +69,9 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }:
     const last = asked?.[asked.length - 1];
     if (last && list.current) list.current.scrollTop = last.offsetTop - 8;
   }, [lines, busy]);
-  useEffect(() => { box.current?.focus(); }, []);
+  // With a keyboard at hand, typing can start at once. On a phone, focusing would bring the keyboard
+  // up over the page before the reader chose between typing and one of the ready-made questions.
+  useEffect(() => { if (!touchScreen()) box.current?.focus(); }, []);
 
   async function send(text: string) {
     const question = text.trim();
@@ -77,6 +83,8 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }:
     setQuote(null);
     setError("");
     setBusy(true);
+    // On a phone: the keyboard away and the whole screen for the answer.
+    if (onTall) { box.current?.blur(); onTall(true); }
     try {
       const a = await ask(id, unitKey, page, content, history);
       setModel(a.model);
@@ -95,6 +103,12 @@ export function AskPanel({ id, unitKey, page, onClose, quote: selected = null }:
       <header>
         <strong>Preguntar</strong>
         <span className="pill">página {page}</span>
+        {onTall && (
+          <button className={`ctl ask-size ${tall ? "on" : ""}`} onClick={() => onTall(!tall)} aria-pressed={tall}
+                  aria-label={tall ? "Achicar el panel" : "Agrandar el panel"} title={tall ? "Achicar el panel" : "Agrandar el panel"}>
+            <Icon name="chevron" />
+          </button>
+        )}
         <button className="ctl" onClick={onClose} aria-label="Cerrar"><Icon name="close" /></button>
       </header>
       <div className="ask-lines" ref={list}>
