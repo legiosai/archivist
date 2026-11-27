@@ -94,6 +94,9 @@ describe("server", () => {
     expect(plain.headers.get("x-content-type-options")).toBe("nosniff");
     expect(plain.headers.get("x-frame-options")).toBe("DENY");
     expect(plain.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    // Scripts only from here, plus the PDF viewer's WebAssembly decoders: never eval() or inline scripts.
+    const scripts = plain.headers.get("content-security-policy")!.split("; ").find((d) => d.startsWith("script-src"));
+    expect(scripts).toBe("script-src 'self' 'wasm-unsafe-eval'");
     expect(plain.headers.get("strict-transport-security")).toBeNull();
     const tls = await fetch(`${base}/api/v1/health`, { headers: { "cf-connecting-ip": "198.51.100.7", "cf-visitor": '{"scheme":"https"}' } });
     expect(tls.headers.get("strict-transport-security")).toContain("max-age=");

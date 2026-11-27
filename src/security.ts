@@ -104,9 +104,12 @@ export function hardenHeaders(res: ServerResponse, https: boolean): void {
   res.setHeader("referrer-policy", "same-origin");
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  // 'wasm-unsafe-eval' lets the PDF viewer compile its own decoders (colour profiles, JPEG 2000,
+  // JBIG2), which are WebAssembly served from here. It allows nothing else: scripts are still only
+  // this server's files, and eval() and inline scripts stay refused.
   res.setHeader("content-security-policy", [
     "default-src 'self'", "img-src 'self' data: blob:", "media-src 'self' blob:", "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:", "script-src 'self'", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'",
+    "font-src 'self' data:", "script-src 'self' 'wasm-unsafe-eval'", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'",
     "form-action 'self'", "object-src 'none'",
   ].join("; "));
   if (https) res.setHeader("strict-transport-security", "max-age=31536000");
